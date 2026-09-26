@@ -63,14 +63,28 @@ func handleSession(cfg *Config, l *minecraft.Listener, conn *minecraft.Conn, tra
 	id := sessionCounter.Add(1)
 	ident, client := conn.IdentityData(), conn.ClientData()
 	log := slog.With("session", id, "gamertag", ident.DisplayName, "via", transport)
+	signedIn := "not checked (AUTH_OFF)"
+	var check signIn
+	if !cfg.AuthOff {
+		check = checkSignIn(loginPayload(conn.LocalAddr(), conn.RemoteAddr()), sharedVerifier.get())
+		signedIn = check.String()
+	}
 	log.Info("console connected to the server list",
 		"from", remoteIP(conn.RemoteAddr()),
 		"xuid", ident.XUID,
-		"signedIn", conn.Authenticated(),
+		"signedIn", signedIn,
 		"device", deviceName(client.DeviceOS),
 		"gameVersion", client.GameVersion,
 		"joinedAddress", client.ServerAddress,
 	)
+	if !cfg.AuthOff && !check.Verified {
+		log.Warn("could not verify this console's Xbox sign-in; letting it pick a server anyway (the game server checks sign-in itself)",
+			append([]any{"reason", check.How}, check.Token...)...)
+		if cfg.RequireSignIn {
+			_ = l.Disconnect(conn, "Sign in to your Microsoft account to join.")
+			return
+		}
+	}
 	defer log.Info("console left the server list")
 	defer conn.Close()
 	defer forgetTimeline(conn.LocalAddr(), conn.RemoteAddr())

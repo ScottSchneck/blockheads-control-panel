@@ -63,8 +63,11 @@ type Config struct {
 	ServersFile string
 	DataDir     string
 	AuthOff     bool // testing only: skip Xbox sign-in checks
-	MenuTitle   string
-	LogLevel    slog.Level
+	// RequireSignIn turns away consoles whose Xbox sign-in can't be verified.
+	// Off by default: the game server does its own checks.
+	RequireSignIn bool
+	MenuTitle     string
+	LogLevel      slog.Level
 }
 
 // Server is one entry in the console server list. The JSON shape matches
@@ -120,6 +123,7 @@ func LoadConfig() (*Config, error) {
 		DNSEnabled:     envBool("DNS_ENABLED", true),
 		DNSAnswerWorld: envBool("DNS_ANSWER_INTERNET", false),
 		AuthOff:        envBool("AUTH_OFF", false),
+		RequireSignIn:  envBool("REQUIRE_SIGN_IN", false),
 	}
 
 	listIP := env("LIST_IP", "")

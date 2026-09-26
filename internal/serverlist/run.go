@@ -38,11 +38,13 @@ func Run(ctx context.Context, cfg *Config) error {
 	slog.Info("starting console server list",
 		"minecraftVersion", protocol.CurrentVersion, "protocol", protocol.CurrentProtocol,
 		"listIP", cfg.ListIP, "publicIP", cfg.PublicIP, "connection", cfg.Connection,
-		"raknet", cfg.RakNet, "nethernet", cfg.NetherNet, "authOff", cfg.AuthOff)
+		"raknet", cfg.RakNet, "nethernet", cfg.NetherNet, "authOff", cfg.AuthOff, "requireSignIn", cfg.RequireSignIn)
 	slog.Info("menu world settings", "gameMode", cfg.LoadGameMode, "spawnY", cfg.LoadSpawnY,
 		"chunksAt", cfg.LoadChunksAt, "chunkStyle", cfg.LoadChunkStyle, "chunkRange", cfg.LoadChunkRange)
 	if cfg.AuthOff {
 		slog.Warn("AUTH_OFF is on: Xbox sign-in is not checked. Use this only for local testing.")
+	} else {
+		sharedVerifier.get() // start fetching the sign-in keys before the first console arrives
 	}
 
 	if servers, err := loadServers(cfg.ServersFile); err != nil {
@@ -61,7 +63,9 @@ func Run(ctx context.Context, cfg *Config) error {
 
 	status := minecraft.NewStatusProvider("Server list", "Pick a server")
 	listenCfg := minecraft.ListenConfig{
-		AuthenticationDisabled: cfg.AuthOff,
+		// Sign-in is checked in checkSignIn instead, which never turns a
+		// console away over a sign-in format it doesn't recognise.
+		AuthenticationDisabled: true,
 		StatusProvider:         status,
 		MaximumPlayers:         100,
 		ErrorLog:               slog.Default().With("src", "minecraft"),

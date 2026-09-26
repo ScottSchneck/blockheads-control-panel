@@ -26,6 +26,7 @@ type timeline struct {
 	start   time.Time
 	entries []timelineEntry
 	stopped bool
+	login   []byte // the console's Login packet payload, for the sign-in check
 }
 
 var (
@@ -72,7 +73,7 @@ func waitForPacket(src, dst net.Addr, id uint32) (<-chan struct{}, func()) {
 }
 
 // recordPacket is the listener's PacketFunc.
-func recordPacket(h packet.Header, _ []byte, src, dst net.Addr) {
+func recordPacket(h packet.Header, payload []byte, src, dst net.Addr) {
 	if v, ok := packetWaiters.LoadAndDelete(waiterKey(src.String(), dst.String(), h.PacketID)); ok {
 		close(v.(chan struct{}))
 	}
@@ -89,6 +90,9 @@ func recordPacket(h packet.Header, _ []byte, src, dst net.Addr) {
 		}
 		t = &timeline{start: time.Now()}
 		timelines[key] = t
+	}
+	if h.PacketID == packet.IDLogin && t.login == nil {
+		t.login = append([]byte(nil), payload...)
 	}
 	if t.stopped || len(t.entries) >= maxTimelineEntries {
 		return
@@ -137,6 +141,16 @@ func takeTimeline(local, remote net.Addr) string {
 		i = j
 	}
 	return b.String()
+}
+
+// loginPayload returns the Login packet a console sent on this connection.
+func loginPayload(local, remote net.Addr) []byte {
+	timelinesMu.Lock()
+	defer timelinesMu.Unlock()
+	if t, ok := timelines[pairKey(local.String(), remote.String())]; ok {
+		return t.login
+	}
+	return nil
 }
 
 func forgetTimeline(local, remote net.Addr) {
