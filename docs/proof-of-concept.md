@@ -25,6 +25,24 @@ the defaults aren't lost.
 | Can the redirect use NetherNet? | No. The Switch rejects the HTTPS certificate for another company's domain (a valid one is impossible to get). It pings over plain HTTP but always joins over RakNet. Offering NetherNet on a name doesn't break anything: the console falls back to RakNet |
 | How long until the menu appears? | About 19 s on the Switch, against 32 s for the public BedrockConnect server. The handshake finishes in about 2 s; the rest is the Switch loading its world |
 
+### PlayStation 5 (build 5)
+
+The PS5 (Minecraft 1.26.52) reached the menu in 5.6 s and was transferred to
+the game server. Its sign-in is different from the Switch's:
+
+- It sends only a token, with no Mojang certificate chain.
+- The token is signed with the console's own key (ES384, `authType=2`), not
+  by Microsoft. It still carries an XUID and gamertag, plus platform claims
+  (`pid`, `pname`, `nid`, `nname`, `ap`).
+- gophertunnel v1.62.0 rejected it outright ("unexpected signature algorithm
+  ES384"), so build 4 dropped the PS5 before the menu.
+
+Build 5 no longer turns consoles away over sign-in. It checks and logs the
+result, and leaves the real check to the game server, which admitted the PS5.
+The consequence for the design: **the server list can't trust a PS5's XUID or
+gamertag**, so anything that restricts who sees the menu (for example in
+friends mode) can't rely on it. Allowlists stay on the game servers.
+
 After changing a console's DNS, restart the console, or it keeps using cached
 answers.
 
