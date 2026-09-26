@@ -66,8 +66,13 @@ type Config struct {
 	// RequireSignIn turns away consoles whose Xbox sign-in can't be verified.
 	// Off by default: the game server does its own checks.
 	RequireSignIn bool
-	MenuTitle     string
-	LogLevel      slog.Level
+	// PlayerServers lets players connect to a server by address from the
+	// console menu and save it to their own list.
+	PlayerServers bool
+
+	players   *playerStore
+	MenuTitle string
+	LogLevel  slog.Level
 }
 
 // Server is one entry in the console server list. The JSON shape matches
@@ -124,6 +129,7 @@ func LoadConfig() (*Config, error) {
 		DNSAnswerWorld: envBool("DNS_ANSWER_INTERNET", false),
 		AuthOff:        envBool("AUTH_OFF", false),
 		RequireSignIn:  envBool("REQUIRE_SIGN_IN", false),
+		PlayerServers:  envBool("PLAYER_SERVERS", true),
 	}
 
 	listIP := env("LIST_IP", "")

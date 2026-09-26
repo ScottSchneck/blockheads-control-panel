@@ -1,13 +1,11 @@
 package serverlist
 
 import (
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"net"
 	"regexp"
 	"strconv"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -17,14 +15,7 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
 
-const (
-	menuFormID = 1
-	// Bedrock's "form closed" reasons.
-	cancelUserClosed = 0
-	cancelUserBusy   = 1
-
-	sessionTimeout = 10 * time.Minute
-)
+const sessionTimeout = 10 * time.Minute
 
 var sessionCounter atomic.Uint64
 
@@ -39,23 +30,6 @@ var emptyChunkPayload = func() []byte {
 	}
 	return append(b, 0x00) // no border blocks
 }()
-
-type menuForm struct {
-	Type    string       `json:"type"`
-	Title   string       `json:"title"`
-	Content string       `json:"content"`
-	Buttons []formButton `json:"buttons"`
-}
-
-type formButton struct {
-	Text  string     `json:"text"`
-	Image *formImage `json:"image,omitempty"`
-}
-
-type formImage struct {
-	Type string `json:"type"`
-	Data string `json:"data"`
-}
 
 // handleSession runs one console's visit: spawn it into an empty world, show
 // the server menu, and transfer it to whatever it picks.
@@ -147,49 +121,21 @@ func handleSession(cfg *Config, l *minecraft.Listener, conn *minecraft.Conn, tra
 	}
 	log.Info("menu world loaded", "took", time.Since(connected).Round(100*time.Millisecond))
 
-	// show runs from the read loop and from timers, so it holds a lock.
-	var menuMu sync.Mutex
-	shown := false
-	show := func(reason string, onlyFirst bool) {
-		menuMu.Lock()
-		defer menuMu.Unlock()
-		if onlyFirst && shown {
-			return
-		}
-		servers, err := loadServers(cfg.ServersFile)
-		if err != nil {
-			log.Error("could not read the server list", "error", err)
-			_ = l.Disconnect(conn, "The server list is not set up yet. Ask the owner to check the panel.")
-			return
-		}
-		if len(servers) == 0 {
-			_ = l.Disconnect(conn, "No servers have been added yet.")
-			return
-		}
-		form := menuForm{Type: "form", Title: cfg.MenuTitle, Content: "Choose where to play."}
-		for _, s := range servers {
-			b := formButton{Text: s.Name}
-			if s.IconURL != "" {
-				b.Image = &formImage{Type: "url", Data: s.IconURL}
-			}
-			form.Buttons = append(form.Buttons, b)
-		}
-		data, _ := json.Marshal(form)
-		if err := conn.WritePacket(&packet.ModalFormRequest{FormID: menuFormID, FormData: data}); err != nil {
-			log.Warn("could not send the menu", "error", err)
-			return
-		}
-		first := !shown
-		shown = true
-		log.Info("menu shown", "reason", reason, "servers", len(servers), "sinceConnect", time.Since(connected).Round(100*time.Millisecond))
-		if first {
-			logTimeline("menu shown")
-		}
+	m := &menu{
+		cfg:       cfg,
+		conn:      conn,
+		l:         l,
+		log:       log,
+		store:     cfg.players,
+		key:       playerKey(ident.XUID, ident.DisplayName),
+		gamertag:  ident.DisplayName,
+		connected: connected,
+		onFirst:   func() { logTimeline("menu shown") },
 	}
 
 	// The console has spawned (StartGame waits for that), so show the menu
 	// after a moment for its loading screen to clear.
-	fallback := time.AfterFunc(750*time.Millisecond, func() { show("spawned", true) })
+	fallback := time.AfterFunc(750*time.Millisecond, func() { m.showMain("spawned", true) })
 	defer fallback.Stop()
 
 	_ = conn.SetReadDeadline(time.Now().Add(sessionTimeout))
@@ -200,45 +146,19 @@ func handleSession(cfg *Config, l *minecraft.Listener, conn *minecraft.Conn, tra
 			if !errors.As(err, &disc) {
 				log.Debug("connection ended", "error", err)
 			}
-			menuMu.Lock()
-			wasShown := shown
-			menuMu.Unlock()
-			if !wasShown {
+			if !m.wasShown() {
 				logTimeline("left before the menu appeared")
 			}
 			return
 		}
 		switch p := pk.(type) {
 		case *packet.SetLocalPlayerAsInitialised:
-			show("spawned", true)
+			m.showMain("spawned", true)
 		case *packet.ModalFormResponse:
-			if p.FormID != menuFormID {
+			target := m.handle(p)
+			if target == nil {
 				continue
 			}
-			raw, ok := p.ResponseData.Value()
-			if !ok || string(raw) == "null" {
-				reason, _ := p.CancelReason.Value()
-				if reason == cancelUserBusy {
-					// The console was still loading; try again shortly.
-					time.AfterFunc(time.Second, func() { show("retry after busy", false) })
-					continue
-				}
-				log.Info("player closed the menu; showing it again")
-				time.AfterFunc(500*time.Millisecond, func() { show("reopened", false) })
-				continue
-			}
-			var index int
-			if err := json.Unmarshal(raw, &index); err != nil {
-				log.Warn("unexpected menu response", "data", string(raw))
-				continue
-			}
-			servers, err := loadServers(cfg.ServersFile)
-			if err != nil || index < 0 || index >= len(servers) {
-				log.Warn("menu choice no longer matches the server list; showing it again", "index", index)
-				show("list changed", false)
-				continue
-			}
-			target := servers[index]
 			log.Info("player picked a server; sending the console there",
 				"server", target.Name, "address", target.Address, "port", target.Port)
 			if err := conn.WritePacket(&packet.Transfer{Address: target.Address, Port: target.Port}); err != nil {

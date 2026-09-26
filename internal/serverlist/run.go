@@ -38,7 +38,7 @@ func Run(ctx context.Context, cfg *Config) error {
 	slog.Info("starting console server list",
 		"minecraftVersion", protocol.CurrentVersion, "protocol", protocol.CurrentProtocol,
 		"listIP", cfg.ListIP, "publicIP", cfg.PublicIP, "connection", cfg.Connection,
-		"raknet", cfg.RakNet, "nethernet", cfg.NetherNet, "authOff", cfg.AuthOff, "requireSignIn", cfg.RequireSignIn)
+		"raknet", cfg.RakNet, "nethernet", cfg.NetherNet, "authOff", cfg.AuthOff, "requireSignIn", cfg.RequireSignIn, "playerServers", cfg.PlayerServers)
 	slog.Info("menu world settings", "gameMode", cfg.LoadGameMode, "spawnY", cfg.LoadSpawnY,
 		"chunksAt", cfg.LoadChunksAt, "chunkStyle", cfg.LoadChunkStyle, "chunkRange", cfg.LoadChunkRange)
 	if cfg.AuthOff {
@@ -46,6 +46,8 @@ func Run(ctx context.Context, cfg *Config) error {
 	} else {
 		sharedVerifier.get() // start fetching the sign-in keys before the first console arrives
 	}
+
+	cfg.players = newPlayerStore(cfg.DataDir)
 
 	if servers, err := loadServers(cfg.ServersFile); err != nil {
 		slog.Error("server list file problem (consoles will see an error until it is fixed)", "error", err)

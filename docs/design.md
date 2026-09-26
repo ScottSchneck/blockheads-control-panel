@@ -134,6 +134,8 @@ Queries from the internet get answers for the 6 names and a refusal for everythi
 
 **Console server list.** Built into the panel in Go, replacing BedrockConnect. It uses [gophertunnel](https://github.com/Sandertv/gophertunnel) for the Minecraft protocol and [go-nethernet](https://github.com/df-mc/go-nethernet) for the newer connection type. It shows a menu of your servers and transfers the console to the one picked. A **connection setting** chooses what it offers consoles:
 
+**Player servers.** As in BedrockConnect, the console menu has "Connect to a server…": a player types an address and port, and can save it to their own list, which appears below the house servers and can be pruned with "Remove one of my servers". Saved servers are personal (keyed by XUID) and stored in `/data/player-servers.json`; only the owner changes the house servers. It can be switched off (`PLAYER_SERVERS=false`), and a later panel page will let admins see and tidy players' lists.
+
 | Setting | Offers | When to use |
 | --- | --- | --- |
 | RakNet (default) | The older connection type | Works on consoles today (tested on Switch) |

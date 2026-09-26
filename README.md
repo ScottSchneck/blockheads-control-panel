@@ -21,6 +21,10 @@ Switch players can join without extra apps.
   the one picked. Xbox sign-in is checked and logged, but a console is never
   turned away because its sign-in format is new; the game server does the
   real sign-in and allowlist checks.
+- **Connect to any server from the console.** Like BedrockConnect, the menu
+  has "Connect to a server…" for typing an address. Players can save servers
+  to their own list and remove them again. The house servers stay under the
+  owner's control.
 - **RakNet by default, NetherNet ready.** Consoles join the list over RakNet
   today. NetherNet (Minecraft's newer connection type) is built in behind a
   setting in case consoles stop falling back to RakNet. See
@@ -73,6 +77,7 @@ apply without a restart.
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `LIST_IP` | (required) | The container's IP. The DNS hands it to consoles |
+| `PLAYER_SERVERS` | `true` | Players can connect to any server by address from the console menu and save it to their own list |
 | `REQUIRE_SIGN_IN` | `false` | Turn away consoles whose Xbox sign-in can't be verified. Off by default because the game server checks sign-in itself |
 | `SERVERS_FILE` | `/config/servers.json` | The server list |
 | `DATA_DIR` | `/data` | Keys and certificates the panel creates |

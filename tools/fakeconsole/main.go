@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/df-mc/go-nethernet"
@@ -27,6 +28,13 @@ func main() {
 	mode := flag.String("mode", "raknet", "raknet | http | https")
 	addr := flag.String("addr", "127.0.0.1:19132", "server list address")
 	pick := flag.Int("pick", 0, "menu button to press")
+	press := flag.String("press", "", "press the main-menu button whose text starts with this, instead of -pick")
+	connect := flag.String("connect", "", "with -press 'Connect', the address to type into the connect form")
+	port := flag.String("port", "19132", "port to type into the connect form")
+	name := flag.String("name", "", "name to type into the connect form")
+	save := flag.Bool("save", true, "switch on 'Save to my list' in the connect form")
+	remove := flag.String("remove", "", "with -press 'Remove', remove the saved server whose button starts with this")
+	expect := flag.String("expect", "", "fail unless the main menu has a button starting with this")
 	flag.Parse()
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn})))
 
@@ -59,7 +67,7 @@ func main() {
 	fmt.Printf("[%s] spawned in the menu world\n", *mode)
 	_ = conn.WritePacket(&packet.SetLocalPlayerAsInitialised{EntityRuntimeID: conn.GameData().EntityRuntimeID})
 
-	chunks := 0
+	chunks, menusSeen := 0, 0
 	deadline := time.Now().Add(20 * time.Second)
 	_ = conn.SetReadDeadline(deadline)
 	for {
@@ -72,25 +80,61 @@ func main() {
 			chunks++
 		case *packet.ModalFormRequest:
 			var form struct {
+				Type    string `json:"type"`
 				Title   string `json:"title"`
+				Content any    `json:"content"`
 				Buttons []struct {
 					Text string `json:"text"`
 				} `json:"buttons"`
 			}
 			_ = json.Unmarshal(p.FormData, &form)
-			fmt.Printf("[%s] got %d empty chunks and the menu %q with buttons:", *mode, chunks, form.Title)
-			for i, b := range form.Buttons {
-				fmt.Printf(" [%d] %s", i, b.Text)
+			var texts []string
+			for _, b := range form.Buttons {
+				texts = append(texts, strings.ReplaceAll(b.Text, "\n", " / "))
 			}
-			fmt.Println()
-			resp := []byte(fmt.Sprint(*pick))
+			fmt.Printf("[%s] form %d %q (%s): %s\n", *mode, p.FormID, form.Title, form.Type, strings.Join(texts, " | "))
+
+			var resp string
+			switch {
+			case form.Type == "custom_form":
+				if c, ok := form.Content.([]any); ok && len(c) > 0 {
+					if first, ok := c[0].(map[string]any); ok && strings.HasPrefix(fmt.Sprint(first["text"]), "§c") {
+						fail("connect form refused the address: %v", first["text"])
+					}
+				}
+				b, _ := json.Marshal([]any{nil, *connect, *port, *name, *save})
+				resp = string(b)
+			case form.Type == "modal":
+				resp = "true"
+			case p.FormID == 3: // remove list
+				resp = fmt.Sprint(find(texts, *remove))
+			default: // main menu
+				if *expect != "" && find(texts, *expect) < 0 {
+					if *remove != "" && menusSeen > 0 {
+						fmt.Printf("[%s] PASS: %q is gone from the menu\n", *mode, *expect)
+						return
+					}
+					fail("main menu has no button starting with %q", *expect)
+				}
+				if *remove != "" && menusSeen > 0 {
+					fail("%q is still in the menu after removing it", *expect)
+				}
+				menusSeen++
+				i := *pick
+				if *press != "" {
+					if i = find(texts, *press); i < 0 {
+						fail("no button starting with %q", *press)
+					}
+				}
+				resp = fmt.Sprint(i)
+			}
 			var r packet.ModalFormResponse
 			r.FormID = p.FormID
-			r.ResponseData = protocol.Option(resp)
+			r.ResponseData = protocol.Option([]byte(resp))
 			if err := conn.WritePacket(&r); err != nil {
-				fail("answer menu: %v", err)
+				fail("answer form: %v", err)
 			}
-			fmt.Printf("[%s] pressed button %d\n", *mode, *pick)
+			fmt.Printf("[%s] answered %s\n", *mode, resp)
 		case *packet.Transfer:
 			fmt.Printf("[%s] PASS: transferred to %s port %d\n", *mode, p.Address, p.Port)
 			return
@@ -98,6 +142,16 @@ func main() {
 			fail("disconnected: %s", p.Message)
 		}
 	}
+}
+
+// find returns the index of the first text starting with prefix, or -1.
+func find(texts []string, prefix string) int {
+	for i, t := range texts {
+		if prefix != "" && strings.HasPrefix(t, prefix) {
+			return i
+		}
+	}
+	return -1
 }
 
 func fail(format string, args ...any) {

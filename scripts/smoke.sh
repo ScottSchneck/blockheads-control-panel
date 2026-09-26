@@ -44,6 +44,13 @@ for mode in raknet http https; do
   [ "$ok" -eq "$RUNS" ] || failed=1
 done
 
+# Connect by address, check the saved server shows up, then remove it.
+steps_ok=1
+"$FAKE" -press Connect -connect play.example.com -port 19200 -name "Smoke Test" 2>&1 | grep -q "PASS: transferred to play.example.com port 19200" || steps_ok=0
+"$FAKE" -expect "Smoke Test" -press "Smoke Test" 2>&1 | grep -q "PASS: transferred to play.example.com port 19200" || steps_ok=0
+"$FAKE" -press Remove -remove "Smoke Test" -expect "Smoke Test" 2>&1 | grep -q "PASS" || steps_ok=0
+if [ $steps_ok -eq 1 ]; then echo "player servers: connect, save and remove passed"; else echo "player servers: FAILED"; failed=1; fi
+
 # A server built with -race reports data races in its log.
 if grep -q "DATA RACE" "$work/server.log"; then
   echo "data race found"
