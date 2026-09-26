@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Check go.mod and go.sum are tidy
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum || (echo "::warning::go.mod or go.sum changed after 'go mod tidy'; commit the result"; true)
+      - name: Format
+        run: test -z "$(gofmt -l .)" || (gofmt -l .; exit 1)
+      - run: go vet ./...
+      - run: go test -race ./...
+      - run: make build fakeconsole
+      - name: Console join smoke test
+        run: sh scripts/smoke.sh
+      - name: Console join smoke test with the race detector
+        run: |
+          go build -race -o blockheads-race ./cmd/blockheads
+          BIN=./blockheads-race RUNS=20 sh scripts/smoke.sh
+
+  docker:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t blockheads-control-panel:ci .

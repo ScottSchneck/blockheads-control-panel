@@ -1,0 +1,13 @@
+[
+  {
+    "name": "Survival",
+    "address": "192.168.1.50",
+    "port": 19134
+  },
+  {
+    "name": "Creative",
+    "address": "192.168.1.50",
+    "port": 19136,
+    "iconUrl": "https://example.com/creative.png"
+  }
+]

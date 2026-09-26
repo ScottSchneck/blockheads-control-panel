@@ -1,0 +1,15 @@
+name: Idea or request
+description: Suggest a feature or a server type to support
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: Describe the problem before the solution; it helps find the simplest fix.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would help?

@@ -1,0 +1,40 @@
+name: Console test report
+description: Tell us how joining from a console went, good or bad
+labels: [console-test]
+body:
+  - type: dropdown
+    id: console
+    attributes:
+      label: Console
+      options: [Xbox, PlayStation, Nintendo Switch, Other]
+    validations:
+      required: true
+  - type: input
+    id: mcversion
+    attributes:
+      label: Minecraft version on the console
+      placeholder: "1.26.50"
+    validations:
+      required: true
+  - type: input
+    id: joined
+    attributes:
+      label: Featured server you joined from
+      placeholder: The Hive, Lifeboat, ...
+  - type: dropdown
+    id: result
+    attributes:
+      label: Result
+      options: [Menu appeared and the transfer worked, Menu appeared but the transfer failed, Menu never appeared, Other]
+    validations:
+      required: true
+  - type: input
+    id: loadtime
+    attributes:
+      label: Roughly how long until the menu appeared?
+  - type: textarea
+    id: log
+    attributes:
+      label: Log lines
+      description: The `console connected`, `menu shown` and `load timeline` lines from the log.
+      render: text

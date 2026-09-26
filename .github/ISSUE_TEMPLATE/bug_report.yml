@@ -1,0 +1,31 @@
+name: Something isn't working
+description: A bug in the panel, the built-in DNS or the console server list
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Panel version
+      description: The first line of the log shows it (`version=...`).
+    validations:
+      required: true
+  - type: dropdown
+    id: host
+    attributes:
+      label: Where is it running?
+      options: [Unraid, Docker on Linux, Docker Desktop (Windows or Mac), Other]
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: Paste the log around the problem. Remove anything private first (public IP addresses, gamertags you don't want shared).
+      render: text

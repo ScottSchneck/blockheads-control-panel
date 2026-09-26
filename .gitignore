@@ -1,0 +1,17 @@
+# Build output
+/blockheads
+/fakeconsole
+/blockheads-race
+/dist/
+*.exe
+
+# Local runtime data (never commit keys, certificates or player lists)
+/config/
+/data/
+*.pem
+*.log
+# Editors and OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
