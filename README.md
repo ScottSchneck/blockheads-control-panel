@@ -42,19 +42,24 @@ Crafty Controller. Java, Hytale and more follow in later phases.
 You need Docker and a free IP address on your home network for the container,
 because consoles only look for DNS on port 53 and the list on port 19132.
 
+Every push to `main` publishes a ready-built image, so there's nothing to
+compile. On Unraid (adjust the IP and folders for your network):
+
 ```bash
-docker build -t blockheads-control-panel .
-mkdir -p config data
-cp deploy/servers.example.json config/servers.json   # then edit it
-docker run -d --name blockheads --network br0 --ip 192.168.1.60 \
+mkdir -p /mnt/user/appdata/blockheads/config /mnt/user/appdata/blockheads/data
+cp deploy/servers.example.json /mnt/user/appdata/blockheads/config/servers.json   # then edit it
+chown -R 99:100 /mnt/user/appdata/blockheads
+docker run -d --name blockheads --restart unless-stopped \
+  --network br0 --ip 192.168.1.60 \
   -e LIST_IP=192.168.1.60 \
-  -v "$PWD/config:/config" -v "$PWD/data:/data" \
-  blockheads-control-panel
+  -v /mnt/user/appdata/blockheads/config:/config \
+  -v /mnt/user/appdata/blockheads/data:/data \
+  ghcr.io/scottschneck/blockheads-control-panel:latest
 ```
 
-Replace `br0` with your macvlan or bridge network, and `192.168.1.60` with
-the container's address. On Unraid, `br0` with a fixed IP works as-is. Make
-sure the `config` and `data` folders are owned by 99:100 (`nobody:users`).
+To update: `docker pull ghcr.io/scottschneck/blockheads-control-panel:latest`,
+then remove and re-run the container. To build it yourself instead, run
+`docker build -t blockheads-control-panel .` in this folder.
 
 Then set the console's DNS to the container's IP, **restart the console**, open
 Minecraft, and join any featured server.
