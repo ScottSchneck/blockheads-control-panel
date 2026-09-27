@@ -149,8 +149,10 @@ Consoles can't type in a server address, so the panel offers three ways in, each
 | Method | How it works | Home | Friends outside | Needs |
 | --- | --- | --- | --- | --- |
 | Featured-server redirect (default) | Built-in DNS sends the featured-server names to the panel's server list | Yes | Yes | Console DNS set to the panel |
-| LAN broadcast | Each server appears under Friends → LAN Games, using the NetherNet discovery built into go-nethernet | Yes | No | Nothing |
+| LAN Games (confirmed on PS5) | The server list itself appears under Friends → LAN Games, because it answers the consoles' LAN search on port 19132. Picking it opens the same menu | Yes | No | Nothing |
 | Friends-tab broadcast | A dedicated Xbox account signed into the panel appears as "playing"; kids add it as a friend and join from the Friends tab, as [go-mcxboxbroadcast](https://pkg.go.dev/github.com/HashimTheArab/go-mcxboxbroadcast) and MCXboxBroadcast do | Yes | Yes | One extra Microsoft account |
+
+Tested on a PS5 in September 2026: at home the list shows up under LAN Games as "Server List / Pick a server" with no DNS change, so the setup wizard should offer LAN Games as the first way in at home, with DNS for friends outside and for consoles that don't find it. Still to check on Switch and Xbox.
 
 If Minecraft ever breaks the redirect for good, consoles keep access through the other two. PCs and phones join directly and are never affected.
 

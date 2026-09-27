@@ -61,8 +61,10 @@ To update: `docker pull ghcr.io/scottschneck/blockheads-control-panel:latest`,
 then remove and re-run the container. To build it yourself instead, run
 `docker build -t blockheads-control-panel .` in this folder.
 
-Then set the console's DNS to the container's IP, **restart the console**, open
-Minecraft, and join any featured server.
+**At home, try LAN Games first.** Consoles on the same network may find the
+list by themselves under **Friends → LAN Games** (a PS5 does), with no DNS
+change at all. Otherwise, set the console's DNS to the container's IP,
+**restart the console**, open Minecraft, and join any featured server.
 
 ### `servers.json`
 
@@ -87,6 +89,7 @@ apply without a restart.
 | `SERVERS_FILE` | `/config/servers.json` | The server list |
 | `DATA_DIR` | `/data` | Keys and certificates the panel creates |
 | `MENU_TITLE` | `Pick a server` | Title of the console menu |
+| `LIST_NAME`, `LIST_SUBTITLE` | `Server List`, `Pick a server` | What consoles show for the list under Friends → LAN Games |
 | `DNS_ENABLED` | `true` | Built-in DNS on port 53 |
 | `DNS_UPSTREAM` | `1.1.1.1:53` | Where other lookups from home devices go |
 | `PUBLIC_IP`, `DNS_ANSWER_INTERNET` | empty, `false` | Friends mode: answer the featured names for internet clients with your public IP |

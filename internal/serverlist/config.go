@@ -72,7 +72,11 @@ type Config struct {
 
 	players   *playerStore
 	MenuTitle string
-	LogLevel  slog.Level
+	// ListName and ListSubtitle are what consoles show for the list under
+	// Friends → LAN Games (and on the featured-server tile).
+	ListName     string
+	ListSubtitle string
+	LogLevel     slog.Level
 }
 
 // Server is one entry in the console server list. The JSON shape matches
@@ -125,6 +129,8 @@ func LoadConfig() (*Config, error) {
 		ServersFile:    env("SERVERS_FILE", "/config/servers.json"),
 		DataDir:        env("DATA_DIR", "/data"),
 		MenuTitle:      env("MENU_TITLE", "Pick a server"),
+		ListName:       env("LIST_NAME", "Server List"),
+		ListSubtitle:   env("LIST_SUBTITLE", "Pick a server"),
 		DNSEnabled:     envBool("DNS_ENABLED", true),
 		DNSAnswerWorld: envBool("DNS_ANSWER_INTERNET", false),
 		AuthOff:        envBool("AUTH_OFF", false),

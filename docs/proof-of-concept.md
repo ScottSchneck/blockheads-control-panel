@@ -43,6 +43,11 @@ The consequence for the design: **the server list can't trust a PS5's XUID or
 gamertag**, so anything that restricts who sees the menu (for example in
 friends mode) can't rely on it. Allowlists stay on the game servers.
 
+**LAN Games:** on the home network the PS5 also found the list by itself under
+Friends → LAN Games ("Server list / Pick a server"), with no DNS change. The
+list answers the consoles' LAN search on port 19132. The name shown is now set
+with `LIST_NAME` and `LIST_SUBTITLE`.
+
 After changing a console's DNS, restart the console, or it keeps using cached
 answers.
 

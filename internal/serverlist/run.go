@@ -63,7 +63,9 @@ func Run(ctx context.Context, cfg *Config) error {
 		}
 	}
 
-	status := minecraft.NewStatusProvider("Server list", "Pick a server")
+	// Shown under Friends → LAN Games: consoles on the home network find the
+	// list there without any DNS change (seen on a PS5).
+	status := minecraft.NewStatusProvider(cfg.ListName, cfg.ListSubtitle)
 	listenCfg := minecraft.ListenConfig{
 		// Sign-in is checked in checkSignIn instead, which never turns a
 		// console away over a sign-in format it doesn't recognise.
