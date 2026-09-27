@@ -6,7 +6,7 @@ internet, so security problems matter a lot here.
 ## Reporting a problem
 
 Please report it privately through GitHub's
-[private vulnerability reporting](https://github.com/yourname/blockheads-control-panel/security/advisories/new),
+[private vulnerability reporting](https://github.com/ScottSchneck/blockheads-control-panel/security/advisories/new),
 not as a public issue. Include what you found, how to reproduce it, and what
 someone could do with it. You should get a reply within a week.
 

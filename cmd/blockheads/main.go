@@ -15,7 +15,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/yourname/blockheads-control-panel/internal/serverlist"
+	"github.com/ScottSchneck/blockheads-control-panel/internal/serverlist"
 )
 
 // version is set at build time with -ldflags "-X main.version=...".

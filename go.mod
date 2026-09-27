@@ -1,4 +1,4 @@
-module github.com/yourname/blockheads-control-panel
+module github.com/ScottSchneck/blockheads-control-panel
 
 go 1.26.0
 
