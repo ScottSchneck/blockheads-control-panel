@@ -3,6 +3,7 @@ package servers
 import (
 	"bufio"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -72,9 +73,24 @@ func (p *properties) setIfPresent(key, value string) bool {
 }
 
 func (p *properties) write(path string) error {
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, []byte(strings.Join(p.lines, "\n")+"\n"), 0o644); err != nil {
+	f, err := os.CreateTemp(filepath.Dir(path), ".server.properties-*")
+	if err != nil {
 		return err
 	}
-	return os.Rename(tmp, path)
+	_, err = f.WriteString(strings.Join(p.lines, "\n") + "\n")
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = os.Chmod(f.Name(), 0o644)
+	}
+	if err != nil {
+		os.Remove(f.Name())
+		return err
+	}
+	if err := os.Rename(f.Name(), path); err != nil {
+		os.Remove(f.Name())
+		return err
+	}
+	return nil
 }

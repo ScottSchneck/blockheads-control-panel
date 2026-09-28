@@ -21,6 +21,12 @@ Switch players can join without extra apps.
   downloads the current version, keeps your worlds, `server.properties`,
   allowlist and permissions, and sets the execute bit itself, so
   "Permission denied: ./bedrock_server" can't happen.
+- **Players page** for each server: who's online (message, kick, make
+  operator), the allowlist (add, remove, turn on or off), operators, and
+  **Tried to join**: anyone the console menu sent to a server whose allowlist
+  they aren't on shows up with an **Allow** button. Changes apply without a
+  restart. Put your gamertag in **Add server** and you're added to the
+  allowlist and made an operator on every new server.
 - **A first web page** at `https://<container IP>:8443`, for desktop and phone.
   It's bare-bones for now; the full design comes next.
 - **Built-in DNS.** It answers the console "featured server" names (The Hive,
@@ -43,8 +49,7 @@ Switch players can join without extra apps.
 
 ## Coming in phase 1
 
-A settings UI instead of editing `server.properties`, players and allowlist,
-scheduled backups and restore, a setup wizard with owner and user accounts,
+A settings UI instead of editing `server.properties`, scheduled backups and restore, a setup wizard with owner and user accounts,
 the full web design, and importing servers from Crafty Controller. Java,
 Hytale and more follow in later phases.
 

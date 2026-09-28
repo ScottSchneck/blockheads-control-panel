@@ -89,6 +89,9 @@ type Server struct {
 	restart  *time.Timer
 
 	saveMu sync.Mutex // orders writes of .blockheads.json
+
+	filesMu  sync.Mutex // orders edits of allowlist.json, permissions.json and server.properties from the Players page
+	attempts []JoinAttempt
 }
 
 func newServer(m *Manager, meta Meta) *Server {
@@ -215,6 +218,7 @@ func (s *Server) onLineLocked(line string) {
 	case rePlayerJoin.MatchString(line):
 		mm := rePlayerJoin.FindStringSubmatch(line)
 		s.players[mm[1]] = Player{Name: mm[1], XUID: mm[2], Since: time.Now()}
+		go s.onJoin(mm[1], mm[2])
 	case rePlayerLeave.MatchString(line):
 		mm := rePlayerLeave.FindStringSubmatch(line)
 		delete(s.players, mm[1])
@@ -519,6 +523,14 @@ func (s *Server) installAndStart() {
 	}
 	s.state = StateStopped
 	s.mu.Unlock()
+	if owner := s.m.Settings().OwnerGamertag; owner != "" {
+		if err := s.AllowlistAdd(owner, ""); err != nil {
+			s.say("Couldn't add " + owner + " to the allowlist: " + err.Error())
+		}
+		if _, err := s.OpAdd(owner); err != nil {
+			s.say("Couldn't make " + owner + " an operator: " + err.Error())
+		}
+	}
 	if err := s.Start(); err != nil {
 		s.m.log.Warn("could not start a new server", "id", s.meta.ID, "error", err)
 	}

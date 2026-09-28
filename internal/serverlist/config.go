@@ -78,6 +78,11 @@ type Config struct {
 	// container's address.
 	PanelServers func() []PanelServer
 
+	// OnPick, when set, is called when a player picks a server from the
+	// menu, just before they're sent there. verified says whether their
+	// Xbox sign-in was checked.
+	OnPick func(gamertag, xuid string, verified bool, address string, port uint16)
+
 	MenuTitle string
 	// ListName and ListSubtitle are what consoles show for the list under
 	// Friends → LAN Games (and on the featured-server tile).

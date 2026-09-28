@@ -40,6 +40,7 @@ server-port=19132
 server-portv6=19133
 enable-lan-visibility=true
 server-udp-ports=49152-49200
+allow-list=true
 `
 
 func makeZip(t *testing.T, version string) []byte {

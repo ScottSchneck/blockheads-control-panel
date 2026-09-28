@@ -12,6 +12,7 @@
   }
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
 header { display: flex; align-items: baseline; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--border); background: var(--card); }
 h1 { font-size: 18px; margin: 0; }
@@ -42,3 +43,20 @@ a { color: var(--primary); }
 .players { font-size: 13px; margin: 0 0 10px; }
 .console { background: var(--console-bg); color: var(--console-text); border-radius: 10px; padding: 12px; height: 55vh; overflow: auto; font: 12.5px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; word-break: break-word; margin: 0 0 8px; }
 .console .panel { color: #8fd3a8; } .console .cmd { color: #9ec5ff; } .console .warn { color: #f0c36b; } .console .err { color: #ff8f86; }
+h3 { font-size: 15px; margin: 0 0 6px; }
+.small { font-size: 13px; margin: 0 0 10px; }
+.between { justify-content: space-between; }
+.tabs { display: flex; gap: 4px; margin-bottom: 12px; border-bottom: 1px solid var(--border); }
+.tabs button { border: none; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: 8px 14px; color: var(--muted); }
+.tabs button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--primary); font-weight: 600; }
+.people { list-style: none; margin: 8px 0 0; padding: 0; }
+.people li { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 0; border-top: 1px solid var(--border); }
+.people li:first-child { border-top: none; }
+.people .who { flex: 1; min-width: 140px; }
+.people .who small { color: var(--muted); display: block; font-size: 12px; }
+.people button { min-height: 32px; padding: 4px 10px; font-size: 14px; }
+.people .empty { color: var(--muted); font-size: 14px; }
+.badge { font-size: 11px; font-weight: 600; padding: 1px 8px; border-radius: 99px; border: 1px solid var(--border); color: var(--muted); }
+.card.attention { border-color: var(--warn); }
+label.switch { display: flex; flex-direction: row; align-items: center; gap: 6px; margin: 0; font-size: 14px; }
+form.row { margin-top: 8px; }

@@ -163,6 +163,14 @@ func handleSession(cfg *Config, l *minecraft.Listener, conn *minecraft.Conn, tra
 			}
 			log.Info("player picked a server; sending the console there",
 				"server", target.Name, "address", target.Address, "port", target.Port)
+			if cfg.OnPick != nil {
+				// Pass the identity that was actually checked when there is one.
+				name, xuid := ident.DisplayName, ident.XUID
+				if check.Verified {
+					name, xuid = check.Name, check.XUID
+				}
+				cfg.OnPick(name, xuid, check.Verified, target.Address, target.Port)
+			}
 			if err := conn.WritePacket(&packet.Transfer{Address: target.Address, Port: target.Port}); err != nil {
 				log.Warn("could not send the transfer", "error", err)
 			}

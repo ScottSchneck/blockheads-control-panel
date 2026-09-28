@@ -23,6 +23,9 @@
       <label>Server name
         <input id="add-name" maxlength="40" required placeholder="Survival world" autocomplete="off">
       </label>
+      <label>Your gamertag
+        <input id="add-owner" maxlength="32" placeholder="Optional: you'll be on the allowlist and an operator" autocomplete="off">
+      </label>
       <label class="check">
         <input id="add-eula" type="checkbox" required>
         <span>I accept the <a href="https://www.minecraft.net/eula" target="_blank" rel="noopener">Minecraft EULA</a>. The server is downloaded from Mojang.</span>
@@ -38,17 +41,66 @@
     <div id="servers"></div>
   </section>
 
-  <section id="console-panel" hidden>
+  <section id="detail" hidden>
     <div class="section-head">
-      <h2>Console: <span id="console-name"></span></h2>
-      <button id="console-close">Close</button>
+      <h2 id="detail-name"></h2>
+      <button id="detail-close">Close</button>
     </div>
-    <pre id="console-log" class="console" aria-live="polite"></pre>
-    <form id="console-form" class="row">
-      <input id="console-input" placeholder="Type a command, e.g. say Dinner time!" autocomplete="off">
-      <button type="submit" class="primary">Send</button>
-    </form>
-    <p id="console-error" class="error" hidden></p>
+    <div class="tabs" role="tablist">
+      <button role="tab" id="tab-players" data-tab="players">Players</button>
+      <button role="tab" id="tab-console" data-tab="console">Console</button>
+    </div>
+
+    <div id="pane-players" role="tabpanel">
+      <p id="players-error" class="error" hidden></p>
+
+      <div id="attempts-box" class="card attention" hidden>
+        <h3>Tried to join</h3>
+        <p class="muted small">They picked this server from the console menu but aren't on the allowlist.</p>
+        <ul id="attempts" class="people"></ul>
+      </div>
+
+      <div class="card">
+        <h3>Online now</h3>
+        <ul id="online" class="people"></ul>
+        <form id="say-form" class="row">
+          <input id="say-text" maxlength="200" placeholder="Message everyone" autocomplete="off">
+          <button type="submit">Send</button>
+        </form>
+      </div>
+
+      <div class="card">
+        <div class="row between">
+          <h3>Allowlist</h3>
+          <label class="switch"><input id="allow-enabled" type="checkbox"> <span id="allow-enabled-label">On</span></label>
+        </div>
+        <p id="allow-help" class="muted small"></p>
+        <form id="allow-form" class="row">
+          <input id="allow-name" maxlength="32" placeholder="Gamertag" autocomplete="off">
+          <button type="submit" class="primary">Add</button>
+        </form>
+        <ul id="allowlist" class="people"></ul>
+      </div>
+
+      <div class="card">
+        <h3>Operators</h3>
+        <p class="muted small">Operators can use commands and change game settings in the world.</p>
+        <form id="op-form" class="row">
+          <input id="op-name" maxlength="32" placeholder="Gamertag" autocomplete="off">
+          <button type="submit">Make operator</button>
+        </form>
+        <ul id="operators" class="people"></ul>
+      </div>
+    </div>
+
+    <div id="pane-console" role="tabpanel" hidden>
+      <pre id="console-log" class="console" aria-live="polite"></pre>
+      <form id="console-form" class="row">
+        <input id="console-input" placeholder="Type a command, e.g. say Dinner time!" autocomplete="off">
+        <button type="submit" class="primary">Send</button>
+      </form>
+      <p id="console-error" class="error" hidden></p>
+    </div>
   </section>
 </main>
 <script src="app.js"></script>

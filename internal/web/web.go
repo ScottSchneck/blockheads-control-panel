@@ -140,6 +140,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/servers", s.createServer)
 	mux.HandleFunc("POST /api/servers/{id}/{action}", s.serverAction)
 	mux.HandleFunc("GET /api/servers/{id}/console", s.console)
+	s.playerRoutes(mux)
 	return s.secure(mux)
 }
 
@@ -198,6 +199,7 @@ func (s *Server) createServer(w http.ResponseWriter, r *http.Request) {
 		Name       string `json:"name"`
 		Preview    bool   `json:"preview"`
 		AcceptEULA bool   `json:"acceptEula"`
+		Owner      string `json:"ownerGamertag"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, errors.New("bad request"))
@@ -206,6 +208,12 @@ func (s *Server) createServer(w http.ResponseWriter, r *http.Request) {
 	if !req.AcceptEULA {
 		writeError(w, http.StatusBadRequest, errors.New("accept the Minecraft EULA to download the server"))
 		return
+	}
+	if owner := strings.TrimSpace(req.Owner); owner != "" && owner != s.mgr.Settings().OwnerGamertag {
+		if err := s.mgr.SetOwnerGamertag(req.Owner); err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
 	}
 	st, err := s.mgr.Create(req.Name, req.Preview)
 	if err != nil {

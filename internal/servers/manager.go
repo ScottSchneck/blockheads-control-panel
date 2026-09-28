@@ -46,6 +46,9 @@ type Manager struct {
 
 	mu      sync.Mutex
 	servers map[string]*Server
+
+	people     *people
+	settingsMu sync.Mutex
 }
 
 // Meta is what the panel remembers about a server between restarts.
@@ -62,6 +65,9 @@ type Meta struct {
 	// by Start and cleared by Stop, so servers that were running come back
 	// after the container restarts.
 	AutoStart bool `json:"autoStart"`
+	// PendingOps are gamertags to make operators when they first join
+	// (Bedrock needs their Xbox ID, which it only learns then).
+	PendingOps []string `json:"pendingOps,omitempty"`
 }
 
 const metaFile = ".blockheads.json"
@@ -78,7 +84,7 @@ func New(opts Options) *Manager {
 		opts.Log = slog.Default()
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Manager{opts: opts, log: opts.Log.With("src", "servers"), servers: map[string]*Server{}, ctx: ctx, cancel: cancel}
+	return &Manager{opts: opts, log: opts.Log.With("src", "servers"), servers: map[string]*Server{}, ctx: ctx, cancel: cancel, people: newPeople(opts.DataDir)}
 }
 
 func (m *Manager) serversDir() string { return filepath.Join(m.opts.DataDir, "servers") }

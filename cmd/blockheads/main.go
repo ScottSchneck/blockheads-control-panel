@@ -80,6 +80,14 @@ func main() {
 		return out
 	}
 
+	// Players the menu sends to one of our servers show up under "Tried to
+	// join" there if they aren't on its allowlist.
+	cfg.OnPick = func(gamertag, xuid string, verified bool, address string, port uint16) {
+		if address == cfg.ListIP.String() || (cfg.PublicIP.IsValid() && address == cfg.PublicIP.String()) {
+			mgr.NoteMenuPick(int(port), gamertag, xuid, verified)
+		}
+	}
+
 	// Web panel.
 	panel, err := web.New(web.Options{
 		Port:     webPort,
