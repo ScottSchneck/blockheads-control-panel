@@ -74,6 +74,11 @@ type Meta struct {
 	// ImportedFrom is the folder (inside the import folder) the server was
 	// copied from, if it was imported.
 	ImportedFrom string `json:"importedFrom,omitempty"`
+	// Backups is when the server is backed up; nil means DefaultBackupPlan.
+	Backups *BackupPlan `json:"backups,omitempty"`
+	// LastScheduledBackup is when a scheduled backup was last made or
+	// skipped.
+	LastScheduledBackup time.Time `json:"lastScheduledBackup,omitempty"`
 }
 
 const metaFile = ".blockheads.json"
@@ -108,9 +113,21 @@ func (m *Manager) Load() error {
 	if err != nil {
 		return err
 	}
+	// A restore that was interrupted: put back what was moved aside.
+	for _, e := range entries {
+		if id, ok := strings.CutPrefix(e.Name(), ".restore-old-"); ok {
+			if recoverRestore(filepath.Join(m.serversDir(), e.Name()), filepath.Join(m.serversDir(), id)) {
+				m.log.Warn("a restore was interrupted, so it was undone; the server is as it was before", "id", id)
+			}
+		}
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), ".restore-") {
+			_ = os.RemoveAll(filepath.Join(m.serversDir(), e.Name()))
+			continue
+		}
 		if strings.HasPrefix(e.Name(), ".staging-") || strings.HasPrefix(e.Name(), ".download-") || strings.HasPrefix(e.Name(), ".import-") {
 			// Left over from an install that was interrupted.
 			_ = os.RemoveAll(filepath.Join(m.serversDir(), e.Name()))

@@ -334,11 +334,29 @@ func backup(ctx context.Context, dir, backupDir, id, kind string, keep int) (str
 	return path, nil
 }
 
+// pruneBackups keeps the newest keep backups of a kind. Newest by the file's
+// time: the names use the panel's local time, which changes with TZ and
+// daylight saving, so they don't always sort in order.
 func pruneBackups(backupDir, id, kind string, keep int) {
 	matches, _ := filepath.Glob(filepath.Join(backupDir, id+"-*-"+kind+".tar.gz"))
-	sort.Strings(matches) // timestamps sort in order
-	for len(matches) > keep {
-		os.Remove(matches[0])
-		matches = matches[1:]
+	type file struct {
+		path string
+		mod  time.Time
+	}
+	var files []file
+	for _, p := range matches {
+		if st, err := os.Stat(p); err == nil {
+			files = append(files, file{p, st.ModTime()})
+		}
+	}
+	sort.Slice(files, func(i, j int) bool {
+		if !files[i].mod.Equal(files[j].mod) {
+			return files[i].mod.Before(files[j].mod)
+		}
+		return files[i].path < files[j].path
+	})
+	for len(files) > keep {
+		os.Remove(files[0].path)
+		files = files[1:]
 	}
 }

@@ -25,6 +25,7 @@ const (
 	StateInstalling State = "installing"
 	StateImporting  State = "importing"
 	StateUpdating   State = "updating"
+	StateRestoring  State = "restoring"
 	StateStopped    State = "stopped"
 	StateStarting   State = "starting"
 	StateRunning    State = "running"
@@ -93,10 +94,22 @@ type Server struct {
 
 	filesMu  sync.Mutex // orders edits of allowlist.json, permissions.json and server.properties from the Players page
 	attempts []JoinAttempt
+
+	// Backups. backupMu is held while a backup, restore or update runs.
+	backupMu          sync.Mutex
+	backupActive      bool // a backup or restore is running
+	coldBackup        bool // backing up a stopped server; Start waits
+	hotBackup         bool // "save hold" is on; its replies stay out of the console
+	saveReady         bool
+	saveList          chan saveResult
+	hideSaveUntil     time.Time // after "save resume", its reply stays out of the console too
+	retryScheduledAt  time.Time // after a failed scheduled backup
+	backupErr         string
+	playedSinceBackup bool
 }
 
 func newServer(m *Manager, meta Meta) *Server {
-	return &Server{m: m, meta: meta, state: StateStopped, players: map[string]Player{}, subs: map[chan string]struct{}{}}
+	return &Server{m: m, meta: meta, state: StateStopped, players: map[string]Player{}, subs: map[chan string]struct{}{}, playedSinceBackup: true}
 }
 
 // ID returns the server's ID (it never changes).
@@ -139,6 +152,9 @@ func (s *Server) Status() Status {
 	sort.Slice(st.Players, func(i, j int) bool { return st.Players[i].Since.Before(st.Players[j].Since) })
 	if st.Message == "" {
 		st.Message = s.notice
+	}
+	if st.Message == "" && s.backupActive {
+		st.Message = "Backing up…"
 	}
 	return st
 }
@@ -221,6 +237,9 @@ var (
 
 // onLineLocked handles one line of server output. Caller holds s.mu.
 func (s *Server) onLineLocked(line string) {
+	if s.onSaveLineLocked(line) {
+		return
+	}
 	s.addLineLocked(line)
 	switch {
 	case strings.Contains(line, "Server started."):
@@ -232,6 +251,7 @@ func (s *Server) onLineLocked(line string) {
 	case rePlayerJoin.MatchString(line):
 		mm := rePlayerJoin.FindStringSubmatch(line)
 		s.players[mm[1]] = Player{Name: mm[1], XUID: mm[2], Since: time.Now()}
+		s.playedSinceBackup = true
 		s.m.saves.Add(1)
 		go func(name, xuid string) {
 			defer s.m.saves.Done()
@@ -251,8 +271,9 @@ func (s *Server) onLineLocked(line string) {
 // ---- start and stop ----
 
 var (
-	errBusy         = errors.New("the server is busy installing or updating")
+	errBusy         = errors.New("the server is busy installing, updating or restoring; try again when it's done")
 	errShuttingDown = errors.New("the panel is shutting down")
+	errRestoring    = errors.New("a backup is being restored; wait for it to finish")
 	// ErrImporting is returned for changes to a server that's still being copied.
 	ErrImporting = errors.New("the server is still being imported; wait for the copy to finish")
 )
@@ -266,6 +287,9 @@ func (s *Server) Start() error {
 	defer s.mu.Unlock()
 	if s.busy {
 		return errBusy
+	}
+	if s.coldBackup {
+		return errors.New("a backup is being made; try again in a moment")
 	}
 	if s.cmd != nil {
 		return errors.New("the server is already running")
@@ -350,7 +374,8 @@ func (s *Server) startLocked() error {
 	go func() {
 		defer close(readDone)
 		sc := bufio.NewScanner(pr)
-		sc.Buffer(make([]byte, 64*1024), 1024*1024)
+		// Big worlds make long "save query" file lists.
+		sc.Buffer(make([]byte, 64*1024), 16<<20)
 		for sc.Scan() {
 			s.mu.Lock()
 			s.onLineLocked(sc.Text())
@@ -449,6 +474,20 @@ func (s *Server) Stop() error {
 	}
 	s.mu.Unlock()
 	s.stop(true)
+	return nil
+}
+
+// EditBlocked says why the server's files can't be changed right now (it's
+// being imported or restored), or returns nil.
+func (s *Server) EditBlocked() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	switch s.state {
+	case StateImporting:
+		return ErrImporting
+	case StateRestoring:
+		return errRestoring
+	}
 	return nil
 }
 
@@ -586,6 +625,8 @@ func (s *Server) Update() error {
 
 	go func() {
 		defer s.m.work.Done()
+		s.backupMu.Lock() // let a backup in progress finish
+		defer s.backupMu.Unlock()
 		if done := s.stop(true); done != nil {
 			<-done
 		}

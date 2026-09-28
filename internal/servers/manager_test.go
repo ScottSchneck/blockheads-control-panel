@@ -28,6 +28,13 @@ while read line; do
     hang) trap '' TERM; while true; do sleep 1; done;;
     join\ *) echo "[2026-09-27 12:00:01:000 INFO] Player connected: ${line#join }, xuid: 2535400000000000";;
     leave\ *) echo "[2026-09-27 12:00:02:000 INFO] Player disconnected: ${line#leave }, xuid: 2535400000000000, pfid: x";;
+    save\ hold) held=1; echo "Saving...";;
+    save\ query) if [ -n "$held" ]; then
+        echo "[2026-09-27 12:00:03:000 INFO] Data saved. Files are now ready to be copied."
+        (cd worlds && find . -type f | sed 's|^\./||' | while read f; do printf '%s:%s, ' "$f" "$(wc -c < "$f" | tr -d ' ')"; done) | sed 's/, $//'; echo
+      else echo "A previous save has not been completed."; fi;;
+    save\ resume) held=; echo "Changes to the world are resumed.";;
+    grow\ *) printf 'more' >> "worlds/${line#grow }";;
     *) echo "[INFO] got: $line";;
   esac
 done

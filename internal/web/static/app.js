@@ -5,7 +5,7 @@
 const $ = (id) => document.getElementById(id);
 const labels = {
   running: "Running", starting: "Starting", stopping: "Stopping", stopped: "Stopped",
-  installing: "Installing", importing: "Importing", updating: "Updating", crashed: "Crashed", error: "Needs attention",
+  installing: "Installing", importing: "Importing", updating: "Updating", restoring: "Restoring", crashed: "Crashed", error: "Needs attention",
 };
 let selected = null;      // server ID shown in the detail section
 let tab = "players";
@@ -49,7 +49,7 @@ function action(id, what) {
 }
 
 function renderServer(s) {
-  const busy = ["installing", "importing", "updating", "starting", "stopping"].includes(s.state);
+  const busy = ["installing", "importing", "updating", "restoring", "starting", "stopping"].includes(s.state);
   const copying = s.state === "importing";
   const live = s.state === "running" || s.state === "starting";
   const players = s.players.length
@@ -71,6 +71,7 @@ function renderServer(s) {
       el("button", { onclick: confirmUpdate(s), disabled: copying || s.state === "installing" || s.state === "updating" }, "Update"),
       el("button", { onclick: () => openDetail(s, "players"), disabled: copying }, "Players"),
       el("button", { onclick: () => openDetail(s, "settings"), disabled: copying }, "Settings"),
+      el("button", { onclick: () => openDetail(s, "backups"), disabled: copying }, "Backups"),
       el("button", { onclick: () => openDetail(s, "console") }, "Console")));
 }
 
@@ -104,6 +105,7 @@ function openDetail(s, which) {
     if (settingsDirty() && !confirm("Leave without saving your settings changes?")) return;
     closeConsole();
     resetSettings();
+    resetBackups();
   }
   selected = s.id;
   $("detail-name").textContent = s.name;
@@ -114,12 +116,13 @@ function openDetail(s, which) {
 
 function showTab(which) {
   tab = which;
-  for (const t of ["players", "settings", "console"]) {
+  for (const t of ["players", "settings", "backups", "console"]) {
     $("tab-" + t).setAttribute("aria-selected", String(t === which));
     $("pane-" + t).hidden = t !== which;
   }
   if (which === "console") openConsole();
   else if (which === "settings") { if (!settingsView || !settingsDirty()) loadSettings(); }
+  else if (which === "backups") loadBackups();
   else loadPlayers();
 }
 
@@ -130,6 +133,7 @@ for (const b of document.querySelectorAll(".tabs button")) {
 $("detail-close").addEventListener("click", () => {
   if (settingsDirty() && !confirm("Close without saving your settings changes?")) return;
   resetSettings();
+  resetBackups();
   closeConsole();
   selected = null;
   $("detail").hidden = true;
@@ -161,8 +165,8 @@ function row(name, detail, ...buttons) {
   return el("li", {}, el("span", { class: "who" }, name, detail ? el("small", {}, detail) : null), ...buttons);
 }
 
-function btn(text, onclick, cls) {
-  return el("button", { class: cls || "", onclick }, text);
+function btn(text, onclick, cls, disabled) {
+  return el("button", { class: cls || "", onclick, disabled: !!disabled }, text);
 }
 
 function emptyRow(text) {
@@ -514,6 +518,128 @@ $("add-form").addEventListener("submit", async (ev) => {
   }
 });
 
+// ---- backups tab ----
+
+let backupsFor = null; // server ID the plan form belongs to
+let planDirty = false;
+const kindLabels = {
+  scheduled: "Automatic", manual: "Made by hand",
+  "before-update": "Before an update", "before-restore": "Before a restore",
+};
+
+function resetBackups() {
+  backupsFor = null;
+  planDirty = false;
+  // Nothing from another server can be saved here until this one's plan loads.
+  for (const id of ["plan-every", "plan-at", "plan-keep"]) $(id).disabled = true;
+  $("backups").replaceChildren();
+  $("backups-summary").textContent = "";
+  $("plan-save").disabled = true;
+  showBackupsError(null);
+}
+
+function showBackupsError(err) {
+  $("backups-error").textContent = err ? err.message : "";
+  $("backups-error").hidden = !err;
+}
+
+function size(bytes) {
+  if (bytes >= 1e9) return (bytes / 1e9).toFixed(1) + " GB";
+  if (bytes >= 1e6) return (bytes / 1e6).toFixed(1) + " MB";
+  return Math.max(1, Math.round(bytes / 1e3)) + " KB";
+}
+
+async function loadBackups() {
+  if (!selected) return;
+  const id = selected;
+  try {
+    const v = await api(sid() + "/backups");
+    if (id !== selected) return;
+    renderBackups(v, id);
+    showBackupsError(null);
+  } catch (err) { showBackupsError(err); }
+}
+
+async function backupsCall(fn) {
+  const id = selected;
+  try {
+    const v = await fn();
+    if (id !== selected) return;
+    showBackupsError(null);
+    if (v && v.backups) renderBackups(v, id);
+    else loadBackups();
+  } catch (err) { showBackupsError(err); }
+  refresh();
+}
+
+function renderBackups(v, id) {
+  if (backupsFor !== id || !planDirty) {
+    $("plan-every").value = v.plan.every;
+    $("plan-at").value = v.plan.at || "04:00";
+    $("plan-keep").value = v.plan.keep;
+    planDirty = false;
+    $("plan-save").disabled = true;
+  }
+  backupsFor = id;
+  for (const x of ["plan-every", "plan-at"]) $(x).disabled = false;
+  updatePlanForm();
+  const utc = /^(UTC|GMT|Etc\/UTC)$/.test(v.timeZone);
+  $("plan-help").replaceChildren(
+    "A server nobody has played on since its last backup is skipped, so the kept backups aren't all the same. Backups you make by hand stay until you delete them; the panel also keeps the last 5 from before updates and 3 from before restores. ",
+    `Times use the panel's clock: ${v.timeZone}, now ${v.now}.`,
+    ...(utc ? [el("span", { class: "warn" }, " To use your own time zone, add -e TZ=America/Denver (or yours) to the docker run command.")] : []));
+  $("backups-last-error").textContent = v.lastError || "";
+  $("backups-last-error").hidden = !v.lastError;
+  $("backup-now").disabled = v.running;
+  const list = v.backups || [];
+  $("backups-summary").textContent = v.running
+    ? "Working on it…"
+    : (list.length ? `${list.length} backup${list.length === 1 ? "" : "s"}, ${size(v.total)} in all. Restoring backs up the current world first, so you can undo it.` : "");
+  const enc = encodeURIComponent;
+  $("backups").replaceChildren(...(list.length ? list.map((b) => {
+    const when = new Date(b.time).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+    const detail = `${kindLabels[b.kind] || b.kind} · ${size(b.size)}${b.full ? " · includes the server version from before the update" : ""}`;
+    return row(when, detail,
+      el("a", { class: "button", href: `${sid()}/backups/${enc(b.name)}`, download: b.name }, "Download"),
+      btn("Restore", () => {
+        const extra = b.full ? " This also puts back the server version from before that update (press Update to go forward again)." : "";
+        if (confirm(`Put the world back as it was on ${when}?\n\nThe server stops, the current world is backed up first (so you can undo this), and it starts again if it was running.${extra}`)) {
+          backupsCall(() => post(`${sid()}/backups/${enc(b.name)}/restore`));
+        }
+      }, "", v.running),
+      btn("Delete", () => {
+        if (confirm(`Delete the backup from ${when}? This can't be undone.`)) {
+          backupsCall(() => del(`${sid()}/backups/${enc(b.name)}`));
+        }
+      }, "danger", v.running));
+  }) : [emptyRow(v.running ? "Making the first backup…" : "No backups yet.")]));
+}
+
+function updatePlanForm() {
+  const every = $("plan-every").value;
+  $("plan-at-label").hidden = every !== "daily";
+  $("plan-keep").disabled = every === "off";
+}
+
+for (const id of ["plan-every", "plan-at", "plan-keep"]) {
+  $(id).addEventListener("input", () => { planDirty = true; $("plan-save").disabled = false; updatePlanForm(); });
+}
+$("plan-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  if (backupsFor !== selected) return;
+  const plan = { every: $("plan-every").value, at: $("plan-at").value, keep: Number($("plan-keep").value) || 7 };
+  const id = selected;
+  backupsCall(async () => {
+    const v = await api(sid() + "/backups/plan", { method: "PUT", body: JSON.stringify(plan) });
+    if (id === selected) {
+      planDirty = false;
+      backupsFor = null; // take the saved plan
+    }
+    return v;
+  });
+});
+$("backup-now").addEventListener("click", () => backupsCall(() => post(sid() + "/backups")));
+
 // ---- import ----
 
 const importDraft = {}; // path -> {name, port, start}, kept while the list reloads
@@ -639,3 +765,4 @@ api("/api/settings").then((s) => { settings = s || {}; }).catch(() => {});
 refresh();
 setInterval(refresh, 2000);
 setInterval(() => { if (selected && tab === "players" && !document.hidden) loadPlayers(); }, 3000);
+setInterval(() => { if (selected && tab === "backups" && !document.hidden) loadBackups(); }, 3000);

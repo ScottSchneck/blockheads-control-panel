@@ -19,6 +19,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	_ "time/tzdata" // TZ works even without the system's time zone files
 
 	"github.com/ScottSchneck/blockheads-control-panel/internal/serverlist"
 	"github.com/ScottSchneck/blockheads-control-panel/internal/servers"
@@ -71,6 +72,9 @@ func main() {
 		os.Exit(1)
 	}
 	mgr.StartAutoStart()
+	mgr.RunBackupSchedule()
+	zone, _ := time.Now().Zone()
+	slog.Info("scheduled backups use the container's time zone; set TZ to change it", "timeZone", time.Local.String(), "abbrev", zone, "now", time.Now().Format("15:04"))
 
 	// The console menu lists the servers the panel runs.
 	cfg.PanelServers = func() []serverlist.PanelServer {

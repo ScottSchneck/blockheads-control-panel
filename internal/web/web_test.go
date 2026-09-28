@@ -143,3 +143,37 @@ func TestImportListWithoutFolder(t *testing.T) {
 		t.Errorf("import without a folder: %d %s", w.Code, w.Body)
 	}
 }
+
+func TestBackupRoutes(t *testing.T) {
+	s, dir := newTestServer(t)
+	sdir := filepath.Join(dir, "servers", "empty")
+	os.MkdirAll(sdir, 0o755)
+	os.WriteFile(filepath.Join(sdir, ".blockheads.json"), []byte(`{"id":"empty","name":"Empty","type":"bedrock","port":19134,"portV6":19135}`), 0o644)
+	os.WriteFile(filepath.Join(sdir, "bedrock_server"), []byte("x"), 0o755)
+	if err := s.mgr.Load(); err != nil {
+		t.Fatal(err)
+	}
+	do := func(method, path, body string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(method, path, strings.NewReader(body))
+		r.SetBasicAuth("x", s.password)
+		r.Header.Set("X-Blockheads", "1")
+		w := httptest.NewRecorder()
+		s.routes().ServeHTTP(w, r)
+		return w
+	}
+	w := do("GET", "/api/servers/empty/backups", "")
+	if w.Code != 200 || strings.Contains(w.Body.String(), "null") || !strings.Contains(w.Body.String(), `"every":"daily"`) {
+		t.Errorf("list: %d %s", w.Code, w.Body)
+	}
+	if w := do("PUT", "/api/servers/empty/backups/plan", `{"every":"6h","keep":3}`); w.Code != 200 || !strings.Contains(w.Body.String(), `"every":"6h"`) {
+		t.Errorf("plan: %d %s", w.Code, w.Body)
+	}
+	if w := do("PUT", "/api/servers/empty/backups/plan", `{"every":"weekly","keep":3}`); w.Code != 400 {
+		t.Errorf("bad plan: %d", w.Code)
+	}
+	for _, name := range []string{"..%2F..%2Fpanel-password", "empty-20260101-000000-manual.tar.gz"} {
+		if w := do("GET", "/api/servers/empty/backups/"+name, ""); w.Code != 404 {
+			t.Errorf("download %s: %d", name, w.Code)
+		}
+	}
+}

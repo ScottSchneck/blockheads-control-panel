@@ -70,6 +70,7 @@
     <div class="tabs" role="tablist">
       <button role="tab" id="tab-players" data-tab="players">Players</button>
       <button role="tab" id="tab-settings" data-tab="settings">Settings</button>
+      <button role="tab" id="tab-backups" data-tab="backups">Backups</button>
       <button role="tab" id="tab-console" data-tab="console">Console</button>
     </div>
 
@@ -150,6 +151,40 @@
           <button type="submit">Make operator</button>
         </form>
         <ul id="operators" class="people"></ul>
+      </div>
+    </div>
+
+    <div id="pane-backups" role="tabpanel" hidden>
+      <p id="backups-error" class="error" hidden></p>
+      <p id="backups-last-error" class="error" hidden></p>
+
+      <form id="plan-form" class="card">
+        <h3>Automatic backups</h3>
+        <div class="row">
+          <label class="inline">How often
+            <select id="plan-every">
+              <option value="off">Off</option>
+              <option value="1h">Every hour</option>
+              <option value="3h">Every 3 hours</option>
+              <option value="6h">Every 6 hours</option>
+              <option value="12h">Every 12 hours</option>
+              <option value="daily">Once a day</option>
+            </select>
+          </label>
+          <label class="inline" id="plan-at-label">at <input id="plan-at" type="time" required></label>
+          <label class="inline">Keep the last <input id="plan-keep" type="number" min="1" max="100" required class="port"></label>
+          <button type="submit" id="plan-save" class="primary" disabled>Save</button>
+        </div>
+        <p class="muted small" id="plan-help"></p>
+      </form>
+
+      <div class="card">
+        <div class="row between">
+          <h3>Backups</h3>
+          <button id="backup-now" class="primary">Back up now</button>
+        </div>
+        <p id="backups-summary" class="muted small"></p>
+        <ul id="backups" class="people"></ul>
       </div>
     </div>
 

@@ -149,6 +149,7 @@ func (s *Server) routes() http.Handler {
 	s.playerRoutes(mux)
 	s.settingsRoutes(mux)
 	s.importRoutes(mux)
+	s.backupRoutes(mux)
 	return s.secure(mux)
 }
 

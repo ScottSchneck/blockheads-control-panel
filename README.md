@@ -32,6 +32,12 @@ Switch players can join without extra apps.
   labelled controls with a line of explanation each. Only the lines you change
   are rewritten, and the panel offers to restart the server to apply them.
   An advanced editor opens the whole `server.properties` for everything else.
+- **Backups** on a schedule for each server (every hour up to once a day,
+  keeping the number you choose), plus **Back up now**, **Download** and
+  one-click **Restore**. Running servers are backed up without stopping them,
+  using Bedrock's own save hold, so nobody gets kicked. A restore backs up the
+  current world first, so it can be undone. Servers nobody has played on since
+  their last backup are skipped. See [Backups](#backups).
 - **Import from Crafty Controller** (or any folder of Bedrock servers). Each
   server is copied in with its worlds, settings, allowlist and operators, and
   keeps its port. The original is only read, never changed. See
@@ -58,8 +64,7 @@ Switch players can join without extra apps.
 
 ## Coming in phase 1
 
-Scheduled backups and restore, a setup wizard with owner and user accounts,
-and the full web design. Java,
+A setup wizard with owner and user accounts, and the full web design. Java,
 Hytale and more follow in later phases.
 
 ## Install
@@ -77,7 +82,7 @@ cp deploy/servers.example.json /mnt/user/appdata/blockheads/config/servers.json 
 chown -R 99:100 /mnt/user/appdata/blockheads
 docker run -d --name blockheads --restart unless-stopped --stop-timeout 60 \
   --network br0 --ip 192.168.1.60 \
-  -e LIST_IP=192.168.1.60 \
+  -e LIST_IP=192.168.1.60 -e TZ=America/Denver \
   -v /mnt/user/appdata/blockheads/config:/config \
   -v /mnt/user/appdata/blockheads/data:/data \
   ghcr.io/scottschneck/blockheads-control-panel:latest
@@ -137,6 +142,27 @@ current release, since the panel doesn't know which version Crafty had.
 Crafty's copy stays as it was. Once you're happy, remove the servers from
 Crafty and the `/import` mount.
 
+### Backups
+
+Each server has a **Backups** tab. New and existing servers are backed up
+once a day at 04:00, keeping the last 7; change that per server. Backups are
+in `/data/backups/<server>` as ordinary `.tar.gz` files holding the worlds
+and the settings files (`server.properties`, allowlist, permissions).
+
+- **Automatic backups** skip a server nobody has played on since its last
+  backup, so a quiet server's kept copies aren't all the same. A backup that
+  fails is tried again 15 minutes later.
+- **Back up now** makes one by hand; those stay until you delete them.
+- **Restore** stops the server, backs up the current world ("Before a
+  restore", the last 3 are kept), puts the backup back and starts the server
+  again if it was running. Restoring a "Before an update" backup also puts
+  back the server version from before that update.
+- Set `TZ` (for example `-e TZ=America/Denver`) so "04:00" is your 4 am; the
+  container is on UTC otherwise.
+
+For copies somewhere else, have Unraid's backup tool (or anything else) copy
+`/mnt/user/appdata/blockheads/data/backups`.
+
 ### `servers.json`
 
 The same format as BedrockConnect's custom servers file:
@@ -162,6 +188,7 @@ apply without a restart.
 | `PLAYER_SERVERS` | `true` | Players can connect to any server by address from the console menu and save it to their own list |
 | `REQUIRE_SIGN_IN` | `false` | Turn away consoles whose Xbox sign-in can't be verified. Off by default because the game server checks sign-in itself |
 | `SERVERS_FILE` | `/config/servers.json` | Extra servers for the console menu that the panel doesn't run (optional) |
+| `TZ` | `UTC` | Time zone for scheduled backups, e.g. `America/Denver` |
 | `IMPORT_DIR` | `/import` | Where other panels' server folders are mounted (read-only) for **Import** |
 | `DATA_DIR` | `/data` | Game servers (`/data/servers`), backups (`/data/backups`), keys and certificates |
 | `MENU_TITLE` | `Pick a server` | Title of the console menu |
