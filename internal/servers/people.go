@@ -65,7 +65,7 @@ func (p *people) seen(name, xuid, server string, verified bool) {
 	}
 	p.byName[key] = x
 	p.mu.Unlock()
-	go p.save()
+	p.save() // small file; callers never hold a server lock
 }
 
 func (p *people) xuidFor(name string) string {
@@ -160,7 +160,11 @@ func (m *Manager) NoteMenuPick(port int, name, xuid string, verified bool) {
 		s.mu.Unlock()
 		if match {
 			m.people.seen(name, xuid, "", verified)
-			go s.noteJoinAttempt(name, xuid, verified)
+			m.saves.Add(1)
+			go func() {
+				defer m.saves.Done()
+				s.noteJoinAttempt(name, xuid, verified)
+			}()
 			return
 		}
 	}

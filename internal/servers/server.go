@@ -161,7 +161,9 @@ func (s *Server) saveMeta() error {
 // saveMetaLater saves the details from a new goroutine, for callers that
 // hold mu.
 func (s *Server) saveMetaLater() {
+	s.m.saves.Add(1)
 	go func() {
+		defer s.m.saves.Done()
 		if err := s.saveMeta(); err != nil {
 			s.m.log.Warn("could not save server details", "id", s.meta.ID, "error", err)
 		}
@@ -226,7 +228,11 @@ func (s *Server) onLineLocked(line string) {
 	case rePlayerJoin.MatchString(line):
 		mm := rePlayerJoin.FindStringSubmatch(line)
 		s.players[mm[1]] = Player{Name: mm[1], XUID: mm[2], Since: time.Now()}
-		go s.onJoin(mm[1], mm[2])
+		s.m.saves.Add(1)
+		go func(name, xuid string) {
+			defer s.m.saves.Done()
+			s.onJoin(name, xuid)
+		}(mm[1], mm[2])
 	case rePlayerLeave.MatchString(line):
 		mm := rePlayerLeave.FindStringSubmatch(line)
 		delete(s.players, mm[1])

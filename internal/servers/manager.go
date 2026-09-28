@@ -43,6 +43,7 @@ type Manager struct {
 	cancel context.CancelFunc
 	workMu sync.Mutex // orders beginWork against StopAll's cancel
 	work   sync.WaitGroup
+	saves  sync.WaitGroup // background file writes (server details, joins); StopAll waits for them
 
 	mu      sync.Mutex
 	servers map[string]*Server
@@ -189,6 +190,13 @@ func (m *Manager) StopAll() {
 			case <-time.After(5 * time.Second):
 			}
 		}
+	}
+	// Servers that just stopped may still be writing their details.
+	savesDone := make(chan struct{})
+	go func() { m.saves.Wait(); close(savesDone) }()
+	select {
+	case <-savesDone:
+	case <-time.After(5 * time.Second):
 	}
 }
 
