@@ -74,11 +74,9 @@
     <a class="brand" href="#/"><svg class="logo" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l9 5v10l-9 5-9-5V7z"></path><path d="M3 7l9 5 9-5"></path><path d="M12 12v10"></path></svg><span>Blockheads</span></a>
     <a class="nav" href="#/" data-nav="servers"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="6" rx="1.5"></rect><rect x="3" y="14" width="18" height="6" rx="1.5"></rect><path d="M7 7h.01M7 17h.01"></path></svg>Servers</a>
     <a class="nav" href="#/backups" data-nav="backups"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="5" rx="1"></rect><path d="M5 9v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9M10 13h4"></path></svg>Backups</a>
-    <a class="nav" href="#/joining" data-nav="joining"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18"></path></svg>Joining</a>
-    <a class="nav" href="#/import" data-nav="import"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5"></path><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"></path></svg>Import</a>
-    <a class="nav" href="#/guide" data-nav="guide"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 11l2 2 4-4"></path><rect x="4" y="4" width="16" height="16" rx="3"></rect></svg>Setup guide</a>
     <div class="sidebar-foot">
-      <a class="list-card" href="#/joining">
+      <a class="nav" href="#/help" data-nav="help"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14"></path><path d="M12 17.5h.01"></path></svg>Help</a>
+      <a class="list-card" href="#/help">
         <span class="list-card-title">Console list</span>
         <span id="side-list-name"></span>
         <span id="side-list-ip" class="mono"></span>
@@ -118,7 +116,7 @@
         <section class="card">
           <h2>Joining from consoles</h2>
           <p class="muted">LAN Games shows <b id="dash-list-name"></b>. Or set the console's DNS to <span id="dash-list-ip" class="mono"></span>.</p>
-          <a href="#/joining">How to join</a>
+          <a href="#/help">How to join</a>
         </section>
       </div>
     </section>
@@ -172,9 +170,10 @@
       <div id="backups-overview" class="server-table"></div>
     </section>
 
-    <!-- Joining -->
-    <section id="view-joining" class="view narrow" hidden>
-      <h1>Joining from consoles</h1>
+    <!-- Help -->
+    <section id="view-help" class="view narrow" hidden>
+      <h1>Help</h1>
+      <h2 class="section-title">Joining from consoles</h2>
       <div class="card">
         <h2>At home, the easy way</h2>
         <p>Open Minecraft, go to <b>Play → Friends</b>, and under <b>LAN Games</b> pick <b id="join-list-name"></b>. Then pick a server. A PS5 finds it this way with no other setup.</p>
@@ -192,6 +191,19 @@
         <h2>Letting people in</h2>
         <p class="muted">Players need to be on a server's allowlist. Anyone the menu sends to a server who isn't shows up under <b>Tried to join</b>, with an Allow button.</p>
       </div>
+
+      <h2 class="section-title">The panel</h2>
+      <div class="card help-links">
+        <a href="#/guide"><b>Setup guide</b><span class="muted">Your gamertag, how consoles join, your servers, and a checklist of what's left.</span></a>
+        <a href="#/import"><b>Import servers</b><span class="muted">Copy servers in from Crafty Controller or another folder.</span></a>
+        <a href="#/account"><b>Appearance and password</b><span class="muted">Light or dark, change your password, sign out.</span></a>
+      </div>
+      <div class="card">
+        <h2>Forgot your password?</h2>
+        <p class="muted">On the Unraid server, run this, then choose "Forgot your password?" on the sign-in page and type the code it prints. The code works once, for an hour.</p>
+        <code class="block">docker exec blockheads blockheads reset-password</code>
+      </div>
+      <p class="muted small" id="version-3"></p>
     </section>
 
     <!-- Setup guide -->
@@ -297,7 +309,6 @@
         <div class="row">
           <button id="logout">Sign out</button>
           <button id="logout-all">Sign out everywhere</button>
-          <a class="button" href="#/guide">Setup guide</a>
         </div>
       </section>
       <p class="muted small" id="version-2"></p>
@@ -489,7 +500,7 @@
   <nav class="tabbar" aria-label="Main">
     <a href="#/" data-nav="servers"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="6" rx="1.5"></rect><rect x="3" y="14" width="18" height="6" rx="1.5"></rect></svg>Servers</a>
     <a href="#/backups" data-nav="backups"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="5" rx="1"></rect><path d="M5 9v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9M10 13h4"></path></svg>Backups</a>
-    <a href="#/joining" data-nav="joining"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18"></path></svg>Joining</a>
+    <a href="#/help" data-nav="help"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14"></path><path d="M12 17.5h.01"></path></svg>Help</a>
     <a href="#/account" data-nav="account"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c1-4 4-6 8-6s7 2 8 6"></path></svg><span id="tab-user">Account</span></a>
   </nav>
 </div>

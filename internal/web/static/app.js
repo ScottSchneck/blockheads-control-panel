@@ -291,8 +291,9 @@ async function checkUpdates(tries = 6) {
 
 let view = "servers";
 
-// route shows the page the address names: #/, #/backups, #/joining,
-// #/import, #/add, #/guide, #/account, #/server/<id>/<tab>.
+// route shows the page the address names: #/, #/backups, #/help,
+// #/import, #/add, #/guide, #/account, #/server/<id>/<tab>. (#/joining, the
+// old address of the joining help, opens Help.)
 let acceptedHash = "#/"; // the address of the page on screen
 
 // stay puts the address back to the page on screen, after the person chose
@@ -310,7 +311,8 @@ function route() {
     parts = [];
   }
   let next = parts[0] || "servers";
-  if (!["servers", "backups", "joining", "import", "add", "guide", "account", "server"].includes(next)) next = "servers";
+  if (next === "joining") next = "help";
+  if (!["servers", "backups", "help", "import", "add", "guide", "account", "server"].includes(next)) next = "servers";
   if (next === "server") {
     const id = parts[1];
     const t = ["overview", "players", "settings", "backups", "console"].includes(parts[2]) ? parts[2] : "overview";
@@ -352,14 +354,15 @@ function route() {
   if (next === "import") loadImports();
   if (next === "add") { $("add-owner").value = settings.ownerGamertag || ""; $("add-name").focus(); }
   if (next === "guide") openGuide(1);
-  if (next === "joining") fillJoinInfo();
+  if (next === "help") fillJoinInfo();
   refresh();
 }
 
 function setView(v) {
   view = v;
   for (const sec of document.querySelectorAll(".view")) sec.hidden = sec.id !== "view-" + v;
-  const navKey = v === "server" || v === "add" ? "servers" : v;
+  // Pages without their own menu entry light up the one they're reached from.
+  const navKey = { server: "servers", add: "servers", import: "servers", guide: "help" }[v] || v;
   for (const a of document.querySelectorAll("[data-nav]")) {
     if (a.dataset.nav === navKey) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
   }
@@ -1142,7 +1145,7 @@ async function start() {
   }
   if ($("auth-offline")) $("auth-offline").hidden = true;
   $("version").textContent = st.version ? "Version " + st.version : "";
-  $("version-2").textContent = st.version ? "Blockheads Control Panel " + st.version : "";
+  for (const id of ["version-2", "version-3"]) $(id).textContent = st.version ? "Blockheads Control Panel " + st.version : "";
   if (st.mode === "signedIn") {
     enterApp(st);
     return;

@@ -334,3 +334,11 @@ legend { font-size: 13px; font-weight: 600; color: var(--soft); margin-bottom: 1
 @media (max-width: 360px) {
   .tabs a { padding: 12px 6px; font-size: 13px; }
 }
+
+/* help page */
+.section-title { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 22px 0 10px; }
+.help-links { padding: 6px 18px; }
+.help-links a { display: grid; gap: 2px; padding: 12px 0; border-top: 1px solid var(--line-2); color: var(--text); text-decoration: none; }
+.help-links a:first-child { border-top: none; }
+.help-links a:hover b { color: var(--link); }
+.help-links .muted { font-size: 13px; }
