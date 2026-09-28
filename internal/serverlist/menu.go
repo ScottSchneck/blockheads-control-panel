@@ -3,6 +3,7 @@ package serverlist
 import (
 	"encoding/json"
 	"log/slog"
+	"net/netip"
 	"strconv"
 	"strings"
 	"sync"
@@ -97,6 +98,7 @@ type menu struct {
 	key       string
 	gamertag  string
 	host      string // this container's address as the console should use it
+	outside   bool   // the console is joining from outside the house
 	connected time.Time
 	onFirst   func()
 
@@ -135,6 +137,16 @@ func (m *menu) showMain(reason string, onlyFirst bool) {
 	if err != nil {
 		m.log.Error("could not read the server list", "error", err)
 	}
+	if m.outside {
+		// Entries at home addresses can't be reached from outside.
+		kept := house[:0]
+		for _, h := range house {
+			if a, err := netip.ParseAddr(h.Address); err != nil || !isHomeAddr(a) {
+				kept = append(kept, h)
+			}
+		}
+		house = kept
+	}
 	if m.cfg.PanelServers != nil {
 		panel := m.cfg.PanelServers()
 		// A server the panel runs replaces an entry of the same name in
@@ -150,7 +162,12 @@ func (m *menu) showMain(reason string, onlyFirst bool) {
 			}
 		}
 		house = kept
+		o := m.cfg.outside()
 		for _, p := range panel {
+			// Friends outside only see the servers open to them.
+			if m.outside && m.cfg.OutsideInfo != nil && (o.Open == nil || !o.Open(p.Port)) {
+				continue
+			}
 			if p.Running {
 				house = append(house, Server{Name: p.Name, Address: m.host, Port: uint16(p.Port)})
 			}

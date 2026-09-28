@@ -516,3 +516,16 @@ html[data-style="treehouse"] .style-card { border-radius: 16px; }
   .grants li { flex-wrap: wrap; }
   .grants select { width: 100%; }
 }
+
+/* ---- Friends outside ---- */
+.table-wrap { overflow-x: auto; }
+table.ports { width: 100%; border-collapse: collapse; font-size: 14px; }
+table.ports th { text-align: left; font-weight: 600; color: var(--muted); font-size: 12px; padding: 6px 8px 6px 0; }
+table.ports td { padding: 8px 8px 8px 0; border-top: 1px solid var(--line-2); vertical-align: top; }
+table.ports .ok { color: var(--ok); }
+#ov-invite { width: 100%; font-size: 13px; margin-top: 8px; }
+#ov-outside-actions:empty { display: none; }
+.badge.outside { margin-left: 6px; }
+@media (max-width: 720px) {
+  table.ports th:nth-child(4), table.ports td:nth-child(4) { display: none; }
+}

@@ -115,6 +115,11 @@
           <p id="dash-backups" class="muted"></p>
           <a href="#/backups">All backups</a>
         </section>
+        <section class="card" id="dash-outside" data-owner-only>
+          <h2>Friends outside</h2>
+          <p id="dash-outside-text" class="muted"></p>
+          <a href="#/outside">Set up</a>
+        </section>
         <section class="card">
           <h2>Joining from consoles</h2>
           <p class="muted">LAN Games shows <b id="dash-list-name"></b>. Or set the console's DNS to <span id="dash-list-ip" class="mono"></span>.</p>
@@ -192,6 +197,10 @@
         </ol>
       </div>
       <div class="card">
+        <h2>Friends outside the house</h2>
+        <p class="muted">Once the owner turns on outside access, each server's Overview has a "Friends outside the house" card: open the server to them there, and copy an invite that tells a friend exactly how to join from a PC, phone or console.</p>
+      </div>
+      <div class="card">
         <h2>Letting people in</h2>
         <p class="muted">Players need to be on a server's allowlist. Anyone the menu sends to a server who isn't shows up under <b>Tried to join</b>, with an Allow button.</p>
       </div>
@@ -200,6 +209,7 @@
       <div class="card help-links">
         <a href="#/guide" data-owner-only><b>Setup guide</b><span class="muted">Your gamertag, how consoles join, your servers, and a checklist of what's left.</span></a>
         <a href="#/import" data-owner-only><b>Import servers</b><span class="muted">Copy servers in from Crafty Controller or another folder.</span></a>
+        <a href="#/outside" data-owner-only><b>Friends outside the house</b><span class="muted">Let friends who don't live here join the servers you choose.</span></a>
         <a href="#/people" data-owner-only><b>People</b><span class="muted">Accounts for your kids, and which servers each one can use.</span></a>
         <a href="#/account"><b>Appearance and password</b><span class="muted">Light or dark, change your password, sign out.</span></a>
       </div>
@@ -304,6 +314,61 @@
       <section class="card">
         <h2>Recent activity</h2>
         <ul id="people-activity" class="people activity"></ul>
+      </section>
+    </section>
+
+    <!-- Friends outside the house (owner only) -->
+    <section id="view-outside" class="view narrow" hidden>
+      <div class="crumbs"><a href="#/help">Help</a> /</div>
+      <h1>Friends outside the house</h1>
+      <p class="muted">Let friends who don't live here join the servers you choose. Only players on a server's allowlist can get in, and their Xbox sign-in is always checked. Everything else stays private.</p>
+      <p id="outside-error" class="error" hidden></p>
+
+      <form id="outside-form">
+        <section class="card">
+          <h2>Outside access</h2>
+          <label class="check">
+            <input id="outside-enabled" type="checkbox">
+            <span>Let friends outside the house join servers that are open to them</span>
+          </label>
+          <label>Address friends use
+            <input id="outside-address" maxlength="253" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="mc.example.com, or leave empty for this home's internet address">
+          </label>
+          <p class="muted small">A hostname from your own domain or a dynamic DNS service (like DuckDNS) keeps working when your internet address changes. With a fixed address, the IP works too.</p>
+          <ul id="outside-facts" class="checklist"></ul>
+        </section>
+
+        <section class="card">
+          <h2>Your router</h2>
+          <label class="check">
+            <input id="outside-upnp" type="checkbox">
+            <span>Open the ports on the router automatically (UPnP)</span>
+          </label>
+          <p class="muted small">This needs UPnP turned on in the router. Without it, add the forwards below in the router's settings (often under "Port forwarding" or "Virtual servers"). Never forward port 8443: that's this panel, and it should stay inside the house.</p>
+          <p id="outside-router" class="small"></p>
+          <div class="table-wrap"><table id="outside-ports" class="ports"></table></div>
+        </section>
+
+        <section class="card">
+          <h2>Friends on Xbox, PlayStation and Switch</h2>
+          <label class="check">
+            <input id="outside-consoles" type="checkbox">
+            <span>Let friends' consoles use this home's server list</span>
+          </label>
+          <p class="muted small">Consoles can't type a server address, so a friend changes their console's DNS to this home's address, joins a featured server such as The Hive, and lands in the list of servers open to them. This forwards ports 19132 and 53 as well. The panel only answers the featured-server names for them; their console gets everything else from its second DNS. It works on most consoles; if one can't get online that way, the invite also explains a public alternative.</p>
+        </section>
+
+        <div class="row">
+          <button type="submit" class="primary" id="outside-save">Save</button>
+          <button type="button" id="outside-check">Check again</button>
+          <span id="outside-saved" class="muted small" hidden>Saved.</span>
+        </div>
+      </form>
+
+      <section class="card">
+        <h2>Servers</h2>
+        <p class="muted small">Anyone who takes care of a server can open it to friends outside or close it, on the server's Overview.</p>
+        <ul id="outside-servers" class="people"></ul>
       </section>
     </section>
 
@@ -423,6 +488,16 @@
               <div class="row between"><h2>Backups</h2><button type="button" id="ov-backup-now">Back up now</button></div>
               <p id="ov-backups" class="muted"></p>
               <a href="#" data-goto="backups" id="ov-backups-link">Restore or download</a>
+            </section>
+            <section class="card" id="ov-outside-card">
+              <h2>Friends outside the house</h2>
+              <p id="ov-outside-text" class="muted"></p>
+              <p id="ov-outside-problem" class="small warn" hidden></p>
+              <div class="row" id="ov-outside-actions"></div>
+              <details id="ov-invite-box" hidden>
+                <summary>Invite for a friend</summary>
+                <textarea id="ov-invite" rows="12" readonly aria-label="Invite text"></textarea>
+              </details>
             </section>
             <section class="card">
               <h2>Recent activity</h2>

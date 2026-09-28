@@ -131,6 +131,7 @@ func handleSession(cfg *Config, l *minecraft.Listener, conn *minecraft.Conn, tra
 		key:       playerKey(ident.XUID, ident.DisplayName),
 		gamertag:  ident.DisplayName,
 		host:      transferHost(cfg, conn.RemoteAddr()),
+		outside:   fromOutside(conn.RemoteAddr()),
 		connected: connected,
 		onFirst:   func() { logTimeline("menu shown") },
 	}
@@ -286,12 +287,26 @@ var bedrockConnectChunkPayload = append(make([]byte, 258), 0x0a, 0x00, 0x00)
 // transferHost is the address consoles use to reach servers in this
 // container: the home address, or the public one for consoles outside.
 func transferHost(cfg *Config, remote net.Addr) string {
-	if cfg.PublicIP.IsValid() {
-		if ap, err := netip.ParseAddrPort(remoteIP(remote)); err == nil && !isHomeAddr(ap.Addr().Unmap()) {
+	if fromOutside(remote) {
+		// The address itself, not the hostname: a console whose DNS is
+		// this panel can't look the hostname up (only the featured names
+		// are answered for consoles outside).
+		if o := cfg.outside(); o.Enabled && o.IP.IsValid() {
+			return o.IP.String()
+		} else if o.Enabled && o.Host != "" {
+			return o.Host
+		}
+		if cfg.PublicIP.IsValid() {
 			return cfg.PublicIP.String()
 		}
 	}
 	return cfg.ListIP.String()
+}
+
+// fromOutside reports whether a console is joining from outside the house.
+func fromOutside(remote net.Addr) bool {
+	ap, err := netip.ParseAddrPort(remoteIP(remote))
+	return err == nil && !isHomeAddr(ap.Addr().Unmap())
 }
 
 // remoteIP shortens NetherNet's long peer description ("<id> (<id>) (udp4

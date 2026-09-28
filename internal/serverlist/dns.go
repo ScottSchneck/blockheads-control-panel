@@ -137,11 +137,17 @@ func (d *dnsServer) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 func (d *dnsServer) answerRedirect(w dns.ResponseWriter, r *dns.Msg, q dns.Question, from netip.Addr, home bool) {
 	target := d.cfg.ListIP
 	if !home {
-		if !d.cfg.DNSAnswerWorld || !d.cfg.PublicIP.IsValid() {
+		// Friends' consoles outside the house: only when the owner allows it.
+		o := d.cfg.outside()
+		switch {
+		case o.Consoles && o.IP.IsValid():
+			target = o.IP
+		case d.cfg.DNSAnswerWorld && d.cfg.PublicIP.IsValid():
+			target = d.cfg.PublicIP
+		default:
 			d.reply(w, r, dns.RcodeRefused)
 			return
 		}
-		target = d.cfg.PublicIP
 	}
 
 	m := new(dns.Msg)

@@ -22,6 +22,7 @@ import (
 	_ "time/tzdata" // TZ works even without the system's time zone files
 
 	"github.com/ScottSchneck/blockheads-control-panel/internal/auth"
+	"github.com/ScottSchneck/blockheads-control-panel/internal/outside"
 	"github.com/ScottSchneck/blockheads-control-panel/internal/serverlist"
 	"github.com/ScottSchneck/blockheads-control-panel/internal/servers"
 	"github.com/ScottSchneck/blockheads-control-panel/internal/web"
@@ -96,8 +97,38 @@ func main() {
 
 	// Players the menu sends to one of our servers show up under "Tried to
 	// join" there if they aren't on its allowlist.
+	// Friends outside the house.
+	lookups := outside.DefaultLookupURLs
+	switch v := strings.TrimSpace(os.Getenv("PUBLIC_IP_LOOKUP")); strings.ToLower(v) {
+	case "":
+	case "off", "none":
+		lookups = nil
+	default:
+		lookups = strings.Split(v, ",")
+	}
+	dnsPort := 0
+	if cfg.DNSEnabled {
+		dnsPort = cfg.DNSPort
+	}
+	out := outside.New(outside.Options{
+		DataDir:    cfg.DataDir,
+		LocalIP:    cfg.ListIP,
+		ListPort:   cfg.ListPort,
+		DNSPort:    dnsPort,
+		StaticIP:   cfg.PublicIP,
+		LookupURLs: lookups,
+		GatewayURL: os.Getenv("UPNP_GATEWAY"),
+		Servers:    web.OutsideServers(mgr),
+	})
+	cfg.OutsideInfo = func() serverlist.Outside {
+		i := out.Info()
+		return serverlist.Outside{Enabled: i.Enabled, Host: i.Host, IP: i.IP, Consoles: i.Consoles, Open: i.Open}
+	}
+
 	cfg.OnPick = func(gamertag, xuid string, verified bool, address string, port uint16) {
-		if address == cfg.ListIP.String() || (cfg.PublicIP.IsValid() && address == cfg.PublicIP.String()) {
+		if address == cfg.ListIP.String() || (cfg.PublicIP.IsValid() && address == cfg.PublicIP.String()) ||
+			(out.Info().Host != "" && address == out.Info().Host) ||
+			(out.Info().IP.IsValid() && address == out.Info().IP.String()) {
 			mgr.NoteMenuPick(int(port), gamertag, xuid, verified)
 		}
 	}
@@ -111,6 +142,7 @@ func main() {
 		HostIP:   cfg.ListIP.String(),
 		ListName: cfg.ListName,
 		Version:  version,
+		Outside:  out,
 	}, mgr)
 	if err != nil {
 		slog.Error("web panel setup failed", "error", err)
@@ -119,7 +151,11 @@ func main() {
 
 	var wg sync.WaitGroup
 	failed := make(chan error, 2)
-	wg.Add(2)
+	wg.Add(3)
+	go func() {
+		defer wg.Done()
+		out.Run(ctx)
+	}()
 	go func() {
 		defer wg.Done()
 		if err := panel.Run(ctx); err != nil {

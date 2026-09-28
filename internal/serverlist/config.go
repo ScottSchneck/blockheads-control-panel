@@ -78,6 +78,11 @@ type Config struct {
 	// container's address.
 	PanelServers func() []PanelServer
 
+	// OutsideInfo, when set, says how friends outside the house may join
+	// (the panel's outside access settings). It's asked each time, so
+	// changes apply straight away.
+	OutsideInfo func() Outside
+
 	// OnPick, when set, is called when a player picks a server from the
 	// menu, just before they're sent there. verified says whether their
 	// Xbox sign-in was checked.
@@ -89,6 +94,22 @@ type Config struct {
 	ListName     string
 	ListSubtitle string
 	LogLevel     slog.Level
+}
+
+// Outside is how friends outside the house may join.
+type Outside struct {
+	Enabled  bool           // outside access is on
+	Host     string         // the address consoles outside are sent to
+	IP       netip.Addr     // the home's internet address, for DNS answers
+	Consoles bool           // answer consoles' DNS lookups from the internet
+	Open     func(int) bool // whether the panel server on that port is open to them
+}
+
+func (c *Config) outside() Outside {
+	if c.OutsideInfo == nil {
+		return Outside{}
+	}
+	return c.OutsideInfo()
 }
 
 // Server is one entry in the console server list. The JSON shape matches

@@ -120,7 +120,12 @@ func (s *Server) allowlistEnabled(w http.ResponseWriter, r *http.Request, srv *s
 	if req.Enabled {
 		text = "turned the allowlist on"
 	}
-	s.respondPlayers(w, srv, s.did(r, srv, srv.SetAllowlistEnabled(req.Enabled), text), http.StatusInternalServerError)
+	err := s.did(r, srv, srv.SetAllowlistEnabled(req.Enabled), text)
+	code := http.StatusInternalServerError
+	if errors.Is(err, servers.ErrOutsideOpen) {
+		code = http.StatusConflict
+	}
+	s.respondPlayers(w, srv, err, code)
 }
 
 func (s *Server) opAdd(w http.ResponseWriter, r *http.Request, srv *servers.Server) {

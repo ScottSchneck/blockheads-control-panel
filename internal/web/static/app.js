@@ -152,6 +152,7 @@ function renderServerRow(s) {
   return el("div", { class: "srow", style: bandStyle(s.id) },
     el("div", {},
       open ? el("a", { class: "name", href: serverHref(s.id) }, s.name) : el("span", { class: "name" }, s.name),
+      s.outside ? el("span", { class: "badge outside", title: "Friends outside the house can join" }, "Friends outside") : null,
       el("div", { class: "sub" }, `port ${s.port}`),
       s.message ? el("div", { class: "note warn" }, s.message) : null),
     el("div", {}, stateEl(s)),
@@ -211,6 +212,20 @@ function renderDashboard(list, force) {
       : `All ${list.length} are backed up. Longest ago: ${oldest.name}, ${whenShort(oldest.lastBackup).toLowerCase()}.`;
   }
   loadDashAttempts(list);
+  if (me.owner) loadDashOutside();
+}
+
+let dashOutsideAt = 0;
+async function loadDashOutside() {
+  if (Date.now() - dashOutsideAt < 15000) return;
+  dashOutsideAt = Date.now();
+  try {
+    const st = await api("/api/outside");
+    const open = (st.servers || []).filter((x) => x.reached).length;
+    $("dash-outside-text").textContent = !st.settings.enabled
+      ? "Off. Friends who don't live here can't join."
+      : `On · ${open} server${open === 1 ? "" : "s"} open to them` + (st.address ? ` at ${st.address}` : "") + ".";
+  } catch (_) { /* shown on the page itself */ }
 }
 
 $("update-all").addEventListener("click", async (ev) => {
@@ -363,8 +378,8 @@ function route() {
   }
   let next = parts[0] || "servers";
   if (next === "joining") next = "help";
-  if (!["servers", "backups", "help", "import", "add", "guide", "people", "account", "server"].includes(next)) next = "servers";
-  if ((["import", "guide", "people"].includes(next) && !me.owner) || (next === "add" && !me.canAdd)) {
+  if (!["servers", "backups", "help", "import", "add", "guide", "people", "outside", "account", "server"].includes(next)) next = "servers";
+  if ((["import", "guide", "people", "outside"].includes(next) && !me.owner) || (next === "add" && !me.canAdd)) {
     location.hash = "#/"; // not for this account
     return;
   }
@@ -415,6 +430,7 @@ function route() {
     $("add-name").focus();
   }
   if (next === "people") loadPeople();
+  if (next === "outside") loadOutside(false);
   if (next === "guide") openGuide(1);
   if (next === "help") fillJoinInfo();
   refresh();
@@ -424,7 +440,7 @@ function setView(v) {
   view = v;
   for (const sec of document.querySelectorAll(".view")) sec.hidden = sec.id !== "view-" + v;
   // Pages without their own menu entry light up the one they're reached from.
-  const navKey = { server: "servers", add: "servers", import: "servers", guide: "help", people: me.owner ? "people" : "account" }[v] || v;
+  const navKey = { server: "servers", add: "servers", import: "servers", guide: "help", outside: "help", people: me.owner ? "people" : "account" }[v] || v;
   for (const a of document.querySelectorAll("[data-nav]")) {
     if (a.dataset.nav === navKey) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
   }
@@ -498,13 +514,15 @@ async function loadOverview() {
       $("ov-console").replaceChildren(...ovLines.map((l) => el("span", { class: lineClass(l) }, l + "\n")));
     };
   }
-  const [settingsV, players, backups, acts] = await Promise.all([
+  const [settingsV, players, backups, acts, outsideV] = await Promise.all([
     api(`/api/servers/${encodeURIComponent(id)}/settings`).catch(() => null),
     api(`/api/servers/${encodeURIComponent(id)}/players`).catch(() => null),
     api(`/api/servers/${encodeURIComponent(id)}/backups`).catch(() => null),
     api(`/api/activity?server=${encodeURIComponent(id)}&limit=6`).catch(() => null),
+    api(`/api/servers/${encodeURIComponent(id)}/outside`).catch(() => null),
   ]);
   if (id !== selected || tab !== "overview") return;
+  renderOverviewOutside(outsideV, id);
   if (acts) $("ov-activity").replaceChildren(...(acts.length ? acts.map((e) => activityRow(e, false)) : [emptyRow("Nothing yet.")]));
   // World
   const fields = {};
@@ -584,7 +602,11 @@ function clearServerPanes() {
   for (const id of ["online", "allowlist", "operators", "attempts", "ov-online", "ov-world", "ov-activity"]) $(id).replaceChildren();
   $("attempts-box").hidden = true;
   showPlayersError(null);
-  for (const id of ["ov-join", "ov-backups"]) $(id).textContent = "…";
+  for (const id of ["ov-join", "ov-backups", "ov-outside-text"]) $(id).textContent = "…";
+  $("ov-outside-actions").replaceChildren();
+  $("ov-outside-problem").hidden = true;
+  $("ov-invite-box").hidden = true;
+  $("ov-invite").value = "";
   detailKey = "";
   ovPlayersKey = "";
 }
@@ -687,7 +709,14 @@ $("allow-enabled").addEventListener("change", (ev) => {
     ev.target.checked = true;
     return;
   }
-  playersCall(() => post(sid() + "/allowlist-enabled", { enabled }));
+  const id = selected;
+  post(sid() + "/allowlist-enabled", { enabled }).then((v) => {
+    if (id === selected && v) { showPlayersError(null); renderPlayers(v); }
+  }).catch((err) => {
+    if (id !== selected) return;
+    ev.target.checked = !enabled;
+    alert(err.message);
+  });
 });
 
 // ---- settings tab ----
@@ -1176,6 +1205,176 @@ function importRow(c) {
 }
 
 
+// ---- friends outside the house ----
+
+// inviteText tells a friend how to join a server from outside the house.
+function inviteText(v, name) {
+  const lines = [`Come play on "${name}" with me in Minecraft!`, "",
+    "On a PC, phone or tablet: open Minecraft, go to Play, then Servers, then Add Server, and type",
+    `  Server address: ${v.address}`, `  Port: ${v.port}`, ""];
+  lines.push("On an Xbox, PlayStation or Switch (they can't type an address):");
+  if (v.consoles && v.consoleDNS) {
+    lines.push(`  1. In the console's network settings, set the DNS by hand: primary ${v.consoleDNS}, secondary 1.1.1.1.`,
+      "  2. Restart the console, open Minecraft, go to Servers and join The Hive (or any featured server).",
+      `  3. A list of servers appears instead. Pick "${name}".`,
+      "  If the console can't get online with that DNS, try the way below instead.", "");
+    lines.push("Another way for consoles:");
+  }
+  lines.push("  1. Set the DNS by hand: primary 104.238.130.180 (PlayStation: 45.55.68.52), secondary 8.8.8.8.",
+    "     (That's BedrockConnect, a free public server list.)",
+    "  2. Restart the console, open Minecraft, go to Servers and join any featured server.",
+    `  3. Choose "Connect to a Server" and type ${v.address} and port ${v.port}.`, "",
+    "Send me your gamertag first so I can put you on the allowlist.");
+  return lines.join("\n");
+}
+
+function renderOverviewOutside(v, id) {
+  const s = serverList.find((x) => x.id === id);
+  const care = access(s) >= CARE;
+  const actions = [];
+  $("ov-outside-problem").hidden = true;
+  $("ov-invite-box").hidden = true;
+  if (!v) { $("ov-outside-text").textContent = "Couldn't load this."; $("ov-outside-actions").replaceChildren(); return; }
+  if (!v.enabled) {
+    $("ov-outside-text").replaceChildren(...(me.owner
+      ? ["Friends who don't live here can't join yet. ", el("a", { href: "#/outside" }, "Set up outside access")]
+      : ["Friends who don't live here can't join yet. Ask ", ownerName(), " to turn on outside access."]));
+    $("ov-outside-actions").replaceChildren();
+    return;
+  }
+  if (v.open) {
+    $("ov-outside-text").replaceChildren(v.reached ? "Open: friends on the allowlist can join from anywhere at " : "Marked open, but friends can't join right now. Address: ",
+      el("b", { class: "mono" }, `${v.address}:${v.port}`), ".");
+  } else {
+    $("ov-outside-text").textContent = "Closed: only people in the house can join.";
+  }
+  const notes = [];
+  if (v.problem) notes.push(`It can't be reached while ${v.problem}. Turn it back on (Players or Settings tab).`);
+  if (v.open && v.shared) notes.push("Your internet provider (or a second router) shares this home's address, so friends can't reach it. See Friends outside the house.");
+  if (v.open && !v.problem && !v.opened && me.owner) {
+    notes.push(v.upnp && v.portError
+      ? `The router didn't open port ${v.port}: ${v.portError}. Forward UDP ${v.port} to this panel by hand.`
+      : (v.upnp ? "" : `Forward UDP port ${v.port} to this panel in your router (see Friends outside the house).`));
+  }
+  const note = notes.filter(Boolean).join(" ");
+  $("ov-outside-problem").textContent = note;
+  $("ov-outside-problem").hidden = !note;
+  if (care) {
+    actions.push(btn(v.open ? "Close to friends outside" : "Open to friends outside", async (ev) => {
+      const b = ev.currentTarget;
+      if (!v.open && !confirm(`Open ${s ? s.name : "this server"} to friends outside the house?\n\nOnly players on its allowlist can join, and their Xbox sign-in is checked.`)) return;
+      b.disabled = true;
+      try {
+        const nv = await post(`/api/servers/${encodeURIComponent(id)}/outside`, { open: !v.open });
+        if (id === selected) renderOverviewOutside(nv, id);
+        refresh();
+      } catch (err) { alert(err.message); b.disabled = false; }
+    }, v.open ? "" : "primary"));
+  }
+  if (v.open && v.address) {
+    const text = inviteText(v, s ? s.name : "my server");
+    $("ov-invite").value = text;
+    $("ov-invite-box").hidden = false;
+    actions.push(btn("Copy invite", async (ev) => {
+      const b = ev.currentTarget;
+      try {
+        await navigator.clipboard.writeText(text);
+        b.textContent = "Copied";
+        setTimeout(() => { b.textContent = "Copy invite"; }, 2000);
+      } catch (_) {
+        $("ov-invite-box").open = true;
+        $("ov-invite").select();
+      }
+    }));
+  }
+  $("ov-outside-actions").replaceChildren(...actions);
+}
+
+let outsideDirty = false;
+
+function showOutsideError(err) {
+  $("outside-error").textContent = err ? err.message : "";
+  $("outside-error").hidden = !err;
+}
+
+async function loadOutside(check) {
+  try {
+    const st = check ? await post("/api/outside/check") : await api("/api/outside");
+    if (view !== "outside") return;
+    renderOutside(st);
+    showOutsideError(null);
+  } catch (err) { showOutsideError(err); }
+}
+
+function fact(ok, text) { return checkItem(ok, text); }
+
+function renderOutside(st) {
+  const set = st.settings;
+  if (!outsideDirty) {
+    $("outside-enabled").checked = set.enabled;
+    $("outside-address").value = set.address || "";
+    $("outside-upnp").checked = set.upnp;
+    $("outside-consoles").checked = set.consoles;
+  }
+  $("outside-address").placeholder = st.publicIP ? `Leave empty to use ${st.publicIP}, or type a hostname` : "mc.example.com, or leave empty for this home's internet address";
+  const facts = [];
+  if (st.publicIP) facts.push(fact(!st.shared, `This home's internet address is ${st.publicIP}` + (st.publicIPFrom === "router" ? " (from the router)." : ".")));
+  else if (set.enabled) facts.push(fact(false, st.publicIPError || "Looking up this home's internet address…"));
+  if (st.shared) facts.push(fact(false, "Your internet provider or a second router shares this address (called CGNAT or double NAT), so forwarded ports can't be reached from outside. Ask your provider for a public IP, or put the router in front into bridge mode."));
+  if (set.address && st.addressIP && !st.addressWarning) facts.push(fact(true, `${set.address} leads here (${st.addressIP}).`));
+  if (st.addressWarning) facts.push(fact(false, st.addressWarning));
+  if (set.enabled && st.address) facts.push(fact(true, `Friends join at ${st.address}, with each server's own port.`));
+  $("outside-facts").replaceChildren(...facts);
+  $("outside-facts").hidden = facts.length === 0;
+
+  const r = $("outside-router");
+  if (!set.upnp) { r.textContent = ""; r.className = "small"; }
+  else if (st.router) { r.textContent = `Router: ${st.router}.`; r.className = "small ok"; }
+  else { r.textContent = st.routerError || (set.enabled ? "Looking for the router…" : ""); r.className = "small warn"; }
+
+  const ports = st.ports || [];
+  $("outside-ports").replaceChildren(...(ports.length
+    ? [el("tr", {}, el("th", {}, "Port"), el("th", {}, "Type"), el("th", {}, "Forward to"), el("th", {}, "For"), el("th", {}, "Router")),
+      ...ports.map((p) => el("tr", {},
+        el("td", { class: "mono" }, String(p.port)), el("td", {}, p.proto), el("td", { class: "mono" }, st.localIP), el("td", {}, p.for),
+        el("td", { class: p.opened ? "ok" : (p.error ? "warn" : "muted") }, p.opened ? "Opened" : (set.upnp ? (p.error || "…") : "Forward by hand"))))]
+    : [el("tr", {}, el("td", { class: "muted" }, set.enabled ? "Nothing to forward yet: no server is open to friends outside." : "Nothing is forwarded while outside access is off."))]));
+
+  $("outside-servers").replaceChildren(...((st.servers || []).length ? st.servers.map((x) => {
+    const detail = x.problem ? `Can't be reached: ${x.problem}` : (x.reached ? `Open at ${st.address}:${x.port}` : (x.open ? "Open (outside access is off)" : `Closed · port ${x.port}`));
+    return row(x.name, detail,
+      el("a", { class: "button", href: serverHref(x.id) }, "Open page"));
+  }) : [emptyRow("No servers yet.")]));
+}
+
+for (const id of ["outside-enabled", "outside-upnp", "outside-consoles", "outside-address"]) {
+  $(id).addEventListener("input", () => { outsideDirty = true; $("outside-saved").hidden = true; });
+}
+$("outside-form").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const b = $("outside-save");
+  b.disabled = true;
+  b.textContent = "Saving…";
+  try {
+    const st = await api("/api/outside", { method: "PUT", body: JSON.stringify({
+      enabled: $("outside-enabled").checked, address: $("outside-address").value.trim(),
+      upnp: $("outside-upnp").checked, consoles: $("outside-consoles").checked }) });
+    outsideDirty = false;
+    dashOutsideAt = 0;
+    renderOutside(st);
+    showOutsideError(null);
+    $("outside-saved").hidden = false;
+  } catch (err) { showOutsideError(err); }
+  b.disabled = false;
+  b.textContent = "Save";
+});
+$("outside-check").addEventListener("click", async (ev) => {
+  const b = ev.currentTarget;
+  b.disabled = true;
+  await loadOutside(true);
+  b.disabled = false;
+});
+
 // ---- activity ----
 
 function activityRow(e, withServer) {
@@ -1340,7 +1539,7 @@ function enterApp(st) {
   $("tab-user").textContent = st.username;
   $("reset-user").value = st.username;
   applyPrefs(st.prefs || {}, false);
-  api("/api/settings").then((s) => { settings = s || {}; }).catch(() => {});
+  if (me.owner) api("/api/settings").then((s) => { settings = s || {}; }).catch(() => {});
   loadJoinInfo();
   checkUpdates();
   timers.forEach(clearInterval);
@@ -1351,6 +1550,7 @@ function enterApp(st) {
     setInterval(() => { if (onServer("backups")) loadBackups(); }, 3000),
     setInterval(() => { if (onServer("overview")) loadOverview(); }, 10000),
     setInterval(checkUpdates, 10 * 60 * 1000),
+    setInterval(() => { if (signedIn && view === "outside" && !document.hidden) loadOutside(false); }, 10000),
   ];
   if (me.owner && !st.setupDone && !location.hash.startsWith("#/guide")) location.hash = "#/guide";
   else route();
@@ -1428,6 +1628,8 @@ function signedOut() {
   settings = {};
   me = { owner: false, canAdd: false, name: "" };
   people = null;
+  outsideDirty = false;
+  dashOutsideAt = 0;
   guideInfo = null;
   joinInfo = null;
   serverList = [];

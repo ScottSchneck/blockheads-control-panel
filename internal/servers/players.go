@@ -305,6 +305,11 @@ func (s *Server) SetAllowlistEnabled(on bool) error {
 	// so edit it under s.mu too (after filesMu, the usual order).
 	s.filesMu.Lock()
 	s.mu.Lock()
+	if !on && s.meta.Outside {
+		s.mu.Unlock()
+		s.filesMu.Unlock()
+		return ErrOutsideOpen
+	}
 	path := filepath.Join(s.dir(), "server.properties")
 	p, err := readProperties(path)
 	if err == nil {

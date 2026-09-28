@@ -45,6 +45,11 @@ Switch players can join without extra apps.
 - **Owner account** with a sign-in page, a setup guide the first time, and
   a password reset from the command line. Passwords are hashed with Argon2id;
   repeated wrong passwords lock that address out for 15 minutes.
+- **Friends outside the house.** Open a server to friends who don't live
+  there: the panel finds your internet address, opens the router's ports with
+  UPnP (or lists the forwards to add by hand), and writes an invite that tells
+  a friend how to join from a PC, phone or console. See
+  [Friends outside the house](#friends-outside-the-house).
 - **Accounts for the kids.** On the **People** page the owner gives each kid a
   sign-in and chooses, server by server, what they can do. See
   [People and roles](#people-and-roles).
@@ -76,7 +81,7 @@ Switch players can join without extra apps.
 
 ## Coming next
 
-Friends joining from outside the house; then Java, Hytale and more.
+Java, Hytale and more.
 
 ## Install
 
@@ -157,6 +162,38 @@ The **activity log** records who did what (turned a server off, restored a
 backup, changed settings, let someone in). The owner sees all of it on the
 People page; everyone sees what happened to their own servers on the
 server's Overview.
+
+### Friends outside the house
+
+Open **Help → Friends outside the house** (owner only):
+
+1. Tick **Let friends outside the house join**. For the address friends use,
+   type your hostname (your own domain, or a dynamic DNS name like
+   `something.duckdns.org`), or leave it empty to use this home's internet
+   address. The panel looks up that address and warns if the hostname leads
+   elsewhere, or if your internet provider shares your address (CGNAT), which
+   stops port forwarding from working at all.
+2. Tick **Open the ports on the router automatically** if UPnP is on in your
+   router. Otherwise the page lists each forward to add by hand: UDP, to the
+   container's IP. **Never forward 8443**; the panel stays inside the house.
+3. For friends on consoles, tick **Let friends' consoles use this home's
+   server list**. This forwards 19132 (UDP) and 53 (UDP and TCP). A friend
+   sets their console's primary DNS to your address and secondary DNS to
+   1.1.1.1, joins a featured server, and sees the servers open to them. The
+   panel answers only the featured-server names for consoles outside; every
+   other lookup is refused, so it can't be used as an open resolver.
+
+Then, on a server's **Overview**, **Open to friends outside** (the owner, or
+anyone who takes care of that server). A server can only be open while its
+allowlist and Xbox sign-in checks are on, and those can't be turned off while
+it's open. **Copy invite** gives you text to send a friend: how to join from a
+PC, phone or tablet, from a console with your server list, and from a console
+with the public BedrockConnect list as a fallback. Friends still need to be on
+the allowlist.
+
+Consoles outside only see the servers open to them in the list, and are sent
+to your hostname. The panel re-checks everything every minute, and closes the
+forwards it made when it stops.
 
 ### Moving from Crafty
 
@@ -245,7 +282,10 @@ apply without a restart.
 | `LIST_NAME`, `LIST_SUBTITLE` | `Server List`, `Pick a server` | What consoles show for the list under Friends → LAN Games |
 | `DNS_ENABLED` | `true` | Built-in DNS on port 53 |
 | `DNS_UPSTREAM` | `1.1.1.1:53` | Where other lookups from home devices go |
-| `PUBLIC_IP`, `DNS_ANSWER_INTERNET` | empty, `false` | Friends mode: answer the featured names for internet clients with your public IP |
+| `PUBLIC_IP` | empty | This home's internet address, if you'd rather set it than have the panel look it up |
+| `PUBLIC_IP_LOOKUP` | ipify, icanhazip, ifconfig.me | Where the panel asks for this home's internet address (comma-separated URLs), or `off` |
+| `UPNP_GATEWAY` | empty | The router's UPnP description URL, if searching the network doesn't find it |
+| `DNS_ANSWER_INTERNET` | `false` | Older setting: always answer the featured names for consoles on the internet (with `PUBLIC_IP`). The **Friends on Xbox, PlayStation and Switch** switch does this now |
 | `CONNECTION` | `raknet` | `raknet`, `nethernet` or `both` |
 | `NETHERNET_NAMES` | empty | With `both`, offer NetherNet only for these names |
 | `SIGNALING` | `auto` | NetherNet join endpoint: `auto` (HTTPS and HTTP), `http` or `tls` |

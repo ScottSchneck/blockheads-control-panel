@@ -80,6 +80,9 @@ type Meta struct {
 	// LastScheduledBackup is when a scheduled backup was last made or
 	// skipped.
 	LastScheduledBackup time.Time `json:"lastScheduledBackup,omitempty"`
+	// Outside is true while the server is open to friends outside the
+	// house (it also needs outside access on in the panel).
+	Outside bool `json:"outside,omitempty"`
 }
 
 const metaFile = ".blockheads.json"

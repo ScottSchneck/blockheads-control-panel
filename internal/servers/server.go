@@ -57,6 +57,8 @@ type Status struct {
 	Waiting int `json:"waiting"`
 	// LastBackup is when the newest backup was made (only filled in by List).
 	LastBackup *time.Time `json:"lastBackup,omitempty"`
+	// Outside is true while it's open to friends outside the house.
+	Outside bool `json:"outside,omitempty"`
 }
 
 const (
@@ -151,6 +153,7 @@ func (s *Server) Status() Status {
 		ID: s.meta.ID, Name: s.meta.Name, Type: s.meta.Type, Version: s.meta.Version,
 		Port: s.meta.Port, State: s.state, Message: s.message, AutoStart: s.meta.AutoStart,
 		Players: []Player{}, Preview: s.meta.Preview, Waiting: len(s.attempts),
+		Outside: s.meta.Outside,
 	}
 	for _, p := range s.players {
 		st.Players = append(st.Players, p)
@@ -571,6 +574,9 @@ func (s *Server) Command(line string) error {
 	if strings.EqualFold(strings.TrimPrefix(line, "/"), "stop") {
 		s.say("> " + line)
 		return s.Stop()
+	}
+	if err := s.outsideCommand(line); err != nil {
+		return err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -284,6 +284,11 @@ func (s *Server) SaveSettings(values map[string]string) ([]SettingsChange, error
 	// take both locks in the usual order.
 	s.filesMu.Lock()
 	s.mu.Lock()
+	if v, ok := values["online-mode"]; ok && v != "true" && s.meta.Outside {
+		s.mu.Unlock()
+		s.filesMu.Unlock()
+		return nil, ErrOutsideOpen
+	}
 	var changes []SettingsChange
 	p, err := readProperties(s.propertiesPath())
 	if err == nil {
@@ -354,6 +359,11 @@ func (s *Server) SaveRawProperties(text string) error {
 	}
 	s.filesMu.Lock()
 	s.mu.Lock()
+	if problem := outsideProblem(p); s.meta.Outside && problem != "" {
+		s.mu.Unlock()
+		s.filesMu.Unlock()
+		return fmt.Errorf("%w (with this file, %s)", ErrOutsideOpen, problem)
+	}
 	err := p.write(s.propertiesPath())
 	if err == nil {
 		if aerr := s.applyPanelProperties(false); aerr != nil {

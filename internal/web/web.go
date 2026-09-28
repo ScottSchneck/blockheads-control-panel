@@ -23,6 +23,7 @@ import (
 	"math/big"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strings"
@@ -30,6 +31,7 @@ import (
 
 	"github.com/ScottSchneck/blockheads-control-panel/internal/activity"
 	"github.com/ScottSchneck/blockheads-control-panel/internal/auth"
+	"github.com/ScottSchneck/blockheads-control-panel/internal/outside"
 	"github.com/ScottSchneck/blockheads-control-panel/internal/servers"
 )
 
@@ -45,6 +47,9 @@ type Options struct {
 	HostIP   string // the container's LAN IP, added to the certificate
 	ListName string // what consoles show under LAN Games
 	Version  string
+	// Outside is outside access (friends outside the house). Tests may
+	// leave it nil; the panel then makes one that isn't running.
+	Outside *outside.Manager
 }
 
 // Server is the panel's web server.
@@ -53,6 +58,7 @@ type Server struct {
 	mgr      *servers.Manager
 	auth     *auth.Store
 	activity *activity.Log
+	out      *outside.Manager
 	log      *slog.Logger
 }
 
@@ -76,6 +82,11 @@ func New(opts Options, mgr *servers.Manager) (*Server, error) {
 	}
 	s.auth = store
 	s.activity = activity.Open(filepath.Join(opts.DataDir, "activity.jsonl"))
+	s.out = opts.Outside
+	if s.out == nil {
+		local, _ := netip.ParseAddr(opts.HostIP)
+		s.out = outside.New(outside.Options{DataDir: opts.DataDir, LocalIP: local, ListPort: 19132, Servers: OutsideServers(mgr)})
+	}
 	code, usesOld, err := store.EnsureSetupCode()
 	if err != nil {
 		return nil, fmt.Errorf("couldn't make a setup code: %w", err)
@@ -157,6 +168,7 @@ func (s *Server) routes() http.Handler {
 	s.importRoutes(mux)
 	s.backupRoutes(mux)
 	s.peopleRoutes(mux)
+	s.outsideRoutes(mux)
 	return s.secure(mux)
 }
 

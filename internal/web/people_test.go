@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -238,5 +239,50 @@ func TestRawEditorKeepsTheWorldInsideTheServer(t *testing.T) {
 	w := call(s.routes(), "PUT", "/api/servers/ava/properties", `{"text":"level-name=../../dad/worlds/Bedrock level\n"}`, ownerCookie(s))
 	if w.Code != 400 {
 		t.Errorf("world outside the server: %d %s", w.Code, w.Body)
+	}
+}
+
+func TestOutsideAccessPermissions(t *testing.T) {
+	s, dir := newTestServer(t)
+	addTestServer(t, s, dir, "ava", "Ava's Server", 19140)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go s.out.Run(ctx)
+	h := s.routes()
+	owner := ownerCookie(s)
+	call(h, "POST", "/api/users", `{"username":"Ava","password":"ava password 1"}`, owner)
+	call(h, "POST", "/api/users", `{"username":"Sam","password":"sam password 1"}`, owner)
+	call(h, "PUT", "/api/users/Ava", `{"grants":{"ava":"care"}}`, owner)
+	call(h, "PUT", "/api/users/Sam", `{"grants":{"ava":"run"}}`, owner)
+	ava := sessionFrom(t, call(h, "POST", "/api/auth/login", `{"username":"Ava","password":"ava password 1"}`))
+	sam := sessionFrom(t, call(h, "POST", "/api/auth/login", `{"username":"Sam","password":"sam password 1"}`))
+
+	if w := call(h, "GET", "/api/outside", "", ava); w.Code != 403 {
+		t.Errorf("kid reads outside settings: %d", w.Code)
+	}
+	if w := call(h, "PUT", "/api/outside", `{"enabled":true,"address":"192.168.1.9"}`, owner); w.Code != 400 {
+		t.Errorf("home address accepted: %d %s", w.Code, w.Body)
+	}
+	if w := call(h, "PUT", "/api/outside", `{"enabled":true,"address":"203.0.113.5"}`, owner); w.Code != 200 {
+		t.Fatalf("settings: %d %s", w.Code, w.Body)
+	}
+	if w := call(h, "POST", "/api/servers/ava/outside", `{"open":true}`, sam); w.Code != 403 {
+		t.Errorf("run-level kid opened it: %d", w.Code)
+	}
+	w := call(h, "POST", "/api/servers/ava/outside", `{"open":true}`, ava)
+	if w.Code != 200 {
+		t.Fatalf("open: %d %s", w.Code, w.Body)
+	}
+	var v serverOutsideView
+	json.Unmarshal(w.Body.Bytes(), &v)
+	if !v.Open || !v.Reached || v.Address != "203.0.113.5" || v.Port != 19140 {
+		t.Errorf("view: %+v", v)
+	}
+	json.Unmarshal(call(h, "GET", "/api/servers/ava/outside", "", sam).Body.Bytes(), &v)
+	if !v.Open || v.Address != "203.0.113.5" {
+		t.Errorf("Sam's view: %+v", v)
+	}
+	if w := call(h, "POST", "/api/servers/ava/allowlist-enabled", `{"enabled":false}`, owner); w.Code == 200 {
+		t.Error("allowlist turned off while open")
 	}
 }
