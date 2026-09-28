@@ -342,3 +342,155 @@ legend { font-size: 13px; font-weight: 600; color: var(--soft); margin-bottom: 1
 .help-links a:first-child { border-top: none; }
 .help-links a:hover b { color: var(--link); }
 .help-links .muted { font-size: 13px; }
+
+/* ================================================================
+   Treehouse: big tiles and buttons, rounded type, a top bar.
+   Same page and features as Control Room; only the look changes.
+   ================================================================ */
+
+@font-face { font-family: "Fredoka"; font-weight: 600; font-display: swap; src: url(fonts/fredoka-latin-600-normal.woff2) format("woff2"); }
+@font-face { font-family: "Atkinson Hyperlegible"; font-weight: 400; font-display: swap; src: url(fonts/atkinson-hyperlegible-latin-400-normal.woff2) format("woff2"); }
+@font-face { font-family: "Atkinson Hyperlegible"; font-weight: 700; font-display: swap; src: url(fonts/atkinson-hyperlegible-latin-700-normal.woff2) format("woff2"); }
+
+/* Treehouse dark (also "auto" on a dark device). */
+html[data-style="treehouse"] {
+  color-scheme: dark;
+  --font: "Atkinson Hyperlegible", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --display: "Fredoka", var(--font);
+  --radius: 14px;
+  --bg: #16182a; --side: #1d2035; --panel: #212438; --panel-2: #2a2e48; --field: #1a1c30;
+  --line: #34385a; --line-2: #2c3050; --line-strong: #454a72;
+  --text: #f1eee6; --soft: #c9cde0; --muted: #aab0c6;
+  --accent: #4fb36b; --on-accent: #0c1f12;
+  --ok: #9be0b0; --ok-dot: #4fb36b; --idle-dot: #6b7090;
+  --bad: #ffaaa3; --bad-line: #6a3a3a; --bad-bg: #3a1f22;
+  --info: #bcd3ff; --info-bg: #1c2a4a; --info-line: #33508a; --info-strong: #9cc0ff;
+  --warn: #ffd98a; --warn-bg: #3a2f14; --warn-line: #6b5520; --warn-btn: #ffd98a; --on-warn-btn: #2e2208;
+  --link: #9cc0ff; --link-hover: #c3d8ff;
+  --console-bg: #11131f; --console-text: #d7dde8;
+  --shadow: none;
+}
+html[data-style="treehouse"][data-mode="light"] {
+  color-scheme: light;
+  --bg: #f4f1e8; --side: #ffffff; --panel: #ffffff; --panel-2: #f0ebe0; --field: #fbfaf6;
+  --line: #e3ddcf; --line-2: #f0ebe0; --line-strong: #d6cfbf;
+  --text: #1f2430; --soft: #3d4452; --muted: #5a6272;
+  --accent: #2e7d46; --on-accent: #ffffff;
+  --ok: #1d5a31; --ok-dot: #2e7d46; --idle-dot: #9a968c;
+  --bad: #a3241c; --bad-line: #e5c2bf; --bad-bg: #fdf0ef;
+  --info: #173d80; --info-bg: #e3ecfb; --info-line: #b9cdf2; --info-strong: #2b63c6;
+  --warn: #6b4200; --warn-bg: #fff3d6; --warn-line: #f0d58f; --warn-btn: #7a4b00; --on-warn-btn: #ffffff;
+  --link: #2b63c6; --link-hover: #1d4a99;
+  --console-bg: #1a1d2b; --console-text: #d7dde8;
+  --shadow: none;
+}
+@media (prefers-color-scheme: light) {
+  html[data-style="treehouse"][data-mode="auto"] {
+    color-scheme: light;
+    --bg: #f4f1e8; --side: #ffffff; --panel: #ffffff; --panel-2: #f0ebe0; --field: #fbfaf6;
+    --line: #e3ddcf; --line-2: #f0ebe0; --line-strong: #d6cfbf;
+    --text: #1f2430; --soft: #3d4452; --muted: #5a6272;
+    --accent: #2e7d46; --on-accent: #ffffff;
+    --ok: #1d5a31; --ok-dot: #2e7d46; --idle-dot: #9a968c;
+    --bad: #a3241c; --bad-line: #e5c2bf; --bad-bg: #fdf0ef;
+    --info: #173d80; --info-bg: #e3ecfb; --info-line: #b9cdf2; --info-strong: #2b63c6;
+    --warn: #6b4200; --warn-bg: #fff3d6; --warn-line: #f0d58f; --warn-btn: #7a4b00; --on-warn-btn: #ffffff;
+    --link: #2b63c6; --link-hover: #1d4a99;
+    --console-bg: #1a1d2b; --console-text: #d7dde8;
+    --shadow: none;
+  }
+}
+
+html[data-style="treehouse"] body { font-size: 16px; }
+html[data-style="treehouse"] h1 { font-size: 34px; }
+html[data-style="treehouse"] h2, html[data-style="treehouse"] h3 { font-family: var(--display); font-weight: 600; font-size: 19px; }
+html[data-style="treehouse"] .dash-cards h2, html[data-style="treehouse"] .people + form h3 { font-size: 17px; }
+html[data-style="treehouse"] .mono { font-family: var(--font); }
+html[data-style="treehouse"] button, html[data-style="treehouse"] a.button {
+  min-height: 46px; border-radius: 12px; border-width: 2px; font-weight: 700; font-size: 15px; padding: 0 18px;
+}
+html[data-style="treehouse"] button.primary, html[data-style="treehouse"] a.button.primary {
+  box-shadow: 0 3px 0 color-mix(in srgb, var(--accent) 60%, #000);
+}
+html[data-style="treehouse"] button.go { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+html[data-style="treehouse"] input, html[data-style="treehouse"] select { min-height: 46px; border-radius: 12px; border-width: 2px; }
+html[data-style="treehouse"] .card { border-radius: 18px; border-width: 2px; padding: 20px; }
+html[data-style="treehouse"] .banner { border-radius: 16px; border-width: 2px; }
+html[data-style="treehouse"] .people button, html[data-style="treehouse"] .people a.button { min-height: 40px; font-size: 14px; }
+
+/* the top bar (the sidebar, laid out across) */
+@media (min-width: 861px) {
+  html[data-style="treehouse"] .shell { flex-direction: column; }
+  html[data-style="treehouse"] .sidebar {
+    position: sticky; top: 0; z-index: 5; height: auto; width: 100%; flex-direction: row; align-items: center; gap: 6px;
+    padding: 12px 40px; border-right: none; border-bottom: 2px solid var(--line); overflow: visible;
+  }
+  html[data-style="treehouse"] .brand { padding: 0 18px 0 0; font-size: 22px; }
+  html[data-style="treehouse"] .nav { border-radius: 99px; padding: 0 18px; min-height: 44px; font-size: 15px; color: var(--text); }
+  html[data-style="treehouse"] .nav svg { display: none; }
+  html[data-style="treehouse"] .nav[aria-current="page"] { background: var(--text); color: var(--bg); font-weight: 700; }
+  html[data-style="treehouse"] .sidebar-foot { margin: 0 0 0 auto; flex-direction: row; align-items: center; padding: 0; gap: 6px; }
+  html[data-style="treehouse"] .list-card { display: none; }
+  html[data-style="treehouse"] .nav.account { border: 2px solid var(--line); padding: 0 14px 0 6px; }
+  html[data-style="treehouse"] .nav.account svg { display: none; }
+  html[data-style="treehouse"] .content { padding: 30px 40px 48px; }
+  html[data-style="treehouse"] .view { margin: 0 auto; max-width: 1200px; }
+  html[data-style="treehouse"] .view.narrow { max-width: 760px; }
+}
+html[data-style="treehouse"] .avatar { width: 32px; height: 32px; background: #ffe8a3; color: #7a4b00; font-weight: 700; }
+html[data-style="treehouse"] .logo { stroke: var(--accent); }
+
+/* server tiles on the dashboard */
+html[data-style="treehouse"] #servers {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 18px;
+  border: none; background: none; box-shadow: none; overflow: visible;
+}
+html[data-style="treehouse"] #servers .srow.head { display: none; }
+html[data-style="treehouse"] #servers .srow {
+  grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "name state" "playing playing" "version version" "acts acts";
+  align-items: start; row-gap: 8px; padding: 34px 18px 18px; border: 2px solid var(--line); border-radius: 18px;
+  background: linear-gradient(var(--band) 0 14px, var(--band2) 14px 20px, var(--panel) 20px);
+}
+html[data-style="treehouse"] #servers .srow > :nth-child(1) { grid-area: name; display: block; }
+html[data-style="treehouse"] #servers .srow > :nth-child(2) { grid-area: state; display: block; }
+html[data-style="treehouse"] #servers .srow > :nth-child(3) { grid-area: playing; display: block; min-height: 22px; font-size: 15px; }
+html[data-style="treehouse"] #servers .srow > :nth-child(4) { grid-area: version; display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--muted); }
+html[data-style="treehouse"] #servers .srow > :nth-child(5) { display: none; }
+html[data-style="treehouse"] #servers .srow > .acts { grid-area: acts; display: flex; flex-direction: row; justify-content: flex-start; margin-top: 4px; }
+html[data-style="treehouse"] #servers .srow .acts button, html[data-style="treehouse"] #servers .srow .acts a.button { min-height: 46px; font-size: 15px; padding: 0 18px; }
+html[data-style="treehouse"] #servers .srow .acts a.button { display: inline-flex; }
+html[data-style="treehouse"] #servers .srow .mobile-extra { display: none; }
+html[data-style="treehouse"] #servers .srow .name { font-family: var(--display); font-weight: 600; font-size: 21px; line-height: 1.2; }
+html[data-style="treehouse"] #servers .srow .sub { display: none; }
+html[data-style="treehouse"] #servers .srow .note { margin: 0; }
+html[data-style="treehouse"] #servers .note.upd { font-weight: 700; padding: 3px 10px; border-radius: 99px; background: var(--info-bg); color: var(--info); }
+html[data-style="treehouse"] #servers .note.upd.far { background: var(--warn-bg); color: var(--warn); }
+html[data-style="treehouse"] .state { padding: 4px 12px; border-radius: 99px; font-weight: 700; font-size: 14px; background: var(--panel-2); }
+html[data-style="treehouse"] .state.running { background: color-mix(in srgb, var(--ok-dot) 20%, var(--panel)); }
+html[data-style="treehouse"] .state .dot { display: none; }
+html[data-style="treehouse"] .facts .state { font-size: 14px; }
+
+/* the rest */
+html[data-style="treehouse"] .tabs { border-bottom: none; gap: 8px; margin-bottom: 18px; }
+html[data-style="treehouse"] .tabs a { border: 2px solid var(--line); border-radius: 12px; padding: 10px 18px; color: var(--text); background: var(--panel); font-size: 15px; }
+html[data-style="treehouse"] .tabs a[aria-current="page"] { background: var(--text); color: var(--bg); border-color: var(--text); font-weight: 700; }
+html[data-style="treehouse"] .server-head {
+  padding: 20px 22px; border: 2px solid var(--line); border-radius: 18px; background: var(--panel);
+}
+html[data-style="treehouse"] .server-table { border-width: 2px; border-radius: 18px; }
+html[data-style="treehouse"] .steps li { border-width: 2px; font-size: 14px; }
+html[data-style="treehouse"] .segmented { border-radius: 14px; border-width: 2px; }
+html[data-style="treehouse"] .style-card { border-radius: 16px; }
+
+@media (max-width: 860px) {
+  html[data-style="treehouse"] h1 { font-size: 27px; }
+  html[data-style="treehouse"] #servers { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  html[data-style="treehouse"] #servers .srow { padding: 30px 16px 16px; }
+  html[data-style="treehouse"] #servers .srow .acts a.button { display: none; }
+  html[data-style="treehouse"] #servers .srow .acts button { flex: 1; min-height: 50px; }
+  html[data-style="treehouse"] .tabs { gap: 6px; }
+  html[data-style="treehouse"] .tabs a { padding: 8px 10px; font-size: 14px; }
+  html[data-style="treehouse"] .server-head { padding: 16px; }
+  html[data-style="treehouse"] .tabbar { border-top-width: 2px; }
+  html[data-style="treehouse"] .tabbar a { font-size: 12px; }
+}

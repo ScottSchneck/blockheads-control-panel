@@ -48,8 +48,10 @@ Switch players can join without extra apps.
 - **The web panel** at `https://<container IP>:8443`, for desktop and phone:
   a dashboard of every server (status, players, version, last backup, a note
   when a new Bedrock version is out), and for each server an Overview,
-  Players, Settings, Backups and Console. Light and dark, or following the
-  device; chosen under your name and saved with your account. Fonts are
+  Players, Settings, Backups and Console. Two looks, each light or dark (or
+  following the device): **Control Room**, compact with every server in one
+  table, and **Treehouse**, big tiles and buttons and plain words ("Turn on",
+  "Let in"). Chosen under your name and saved with your account. Fonts are
   built in, so it works without internet.
 - **Built-in DNS.** It answers the console "featured server" names (The Hive,
   Lifeboat and others) with the panel's address, and forwards every other
@@ -71,10 +73,9 @@ Switch players can join without extra apps.
 
 ## Coming next
 
-A second look for the panel, "Treehouse": big tiles and buttons and plain
-words, for younger players. Phase 2 adds more user accounts with roles (so a
-kid can run their own server) and friends joining from outside; Java, Hytale
-and more follow later.
+Phase 2 adds more user accounts with roles (so a kid can run their own
+server) and friends joining from outside; Java, Hytale and more follow
+later.
 
 ## Install
 

@@ -90,7 +90,7 @@
     <section id="view-servers" class="view" hidden>
       <div class="page-head">
         <div class="grow">
-          <h1>Servers</h1>
+          <h1 id="servers-title">Servers</h1>
           <p id="servers-summary" class="muted"></p>
         </div>
         <a class="button" href="#/import">Import</a>
@@ -105,7 +105,7 @@
       <div id="servers" class="server-table"></div>
       <div class="dash-cards">
         <section id="dash-attempts" class="card attention" hidden>
-          <h2>Tried to join</h2>
+          <h2 id="dash-attempts-title">Tried to join</h2>
           <ul id="dash-attempts-list" class="people"></ul>
         </section>
         <section class="card">
@@ -273,10 +273,10 @@
             <span class="muted small">Compact. Every server in one table with its version, players and backup.</span>
           </label>
           <label class="style-card">
-            <input type="radio" name="style" value="treehouse" disabled>
+            <input type="radio" name="style" value="treehouse">
             <span class="style-preview treehouse" aria-hidden="true"><b></b><b></b><b></b><b></b><b></b><b></b></span>
             <span class="style-name">Treehouse</span>
-            <span class="muted small">Big tiles and buttons, plain words. Coming next.</span>
+            <span class="muted small">Big tiles and buttons, plain words like "Turn on" and "Let in".</span>
           </label>
         </fieldset>
         <fieldset class="modes">

@@ -60,8 +60,32 @@ function action(id, what) {
 const busyStates = ["installing", "importing", "updating", "restoring", "starting", "stopping"];
 const isLive = (s) => s.state === "running" || s.state === "starting";
 
+// Words that differ between the two styles: Treehouse uses plainer ones.
+const words = {
+  control: { start: "Start", stop: "Stop", allow: "Allow", running: "Running", stopped: "Stopped", waiting: "Tried to join", nobody: "Nobody", noVersion: "…" },
+  treehouse: { start: "Turn on", stop: "Turn off", allow: "Let in", running: "On", stopped: "Off", waiting: "Wants to join", nobody: "Nobody playing", noVersion: "" },
+};
+const word = (k) => (words[prefs.style] || words.control)[k];
+
 function stateEl(s) {
-  return el("span", { class: `state ${s.state}` }, el("span", { class: "dot" }), labels[s.state] || s.state);
+  const text = s.state === "running" || s.state === "stopped" ? word(s.state) : (labels[s.state] || s.state);
+  return el("span", { class: `state ${s.state}` }, el("span", { class: "dot" }), text);
+}
+
+// Each server gets its own colour band in Treehouse, the same every time.
+const bands = [["#5fae4f", "#8b5a2b"], ["#e39ac6", "#b0648f"], ["#6fb3e0", "#3b7bb0"], ["#e3cf7b", "#b39b3f"],
+  ["#e0925c", "#a95f2a"], ["#a99be0", "#6f5fb0"], ["#6fcfbf", "#3a8f82"], ["#b8b2a6", "#8a8478"]];
+function bandStyle(id) {
+  let h = 0;
+  for (const c of id) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  const [a, b] = bands[h % bands.length];
+  return `--band: ${a}; --band2: ${b}`;
+}
+
+function greeting() {
+  const h = new Date().getHours();
+  const part = h < 5 ? "Good evening" : h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
+  return `${part}, ${$("side-user").textContent || "there"}`;
 }
 
 // needsUpdate says whether a server is behind the newest release, and
@@ -95,7 +119,7 @@ function whenShort(iso) {
 
 function playingText(s) {
   if (s.players.length) return s.players.map((p) => p.name).join(", ");
-  return s.state === "running" ? "Nobody" : "";
+  return s.state === "running" ? word("nobody") : "";
 }
 
 const serverHref = (id, tab) => `#/server/${encodeURIComponent(id)}/${tab || "overview"}`;
@@ -103,8 +127,8 @@ const serverHref = (id, tab) => `#/server/${encodeURIComponent(id)}/${tab || "ov
 function startStopButton(s) {
   const busy = busyStates.includes(s.state);
   return isLive(s)
-    ? el("button", { class: "danger", onclick: action(s.id, "stop"), disabled: s.state === "stopping" }, "Stop")
-    : el("button", { class: "go", onclick: action(s.id, "start"), disabled: busy }, "Start");
+    ? el("button", { class: "danger", onclick: action(s.id, "stop"), disabled: s.state === "stopping" }, word("stop"))
+    : el("button", { class: "go", onclick: action(s.id, "start"), disabled: busy }, word("start"));
 }
 
 function renderServerRow(s) {
@@ -113,7 +137,7 @@ function renderServerRow(s) {
   if (s.players.length) extra.push(`${s.players.length} playing`);
   if (s.waiting) extra.push(`${s.waiting} waiting to be let in`);
   if (upd) extra.push("update ready");
-  return el("div", { class: "srow" },
+  return el("div", { class: "srow", style: bandStyle(s.id) },
     el("div", {},
       el("a", { class: "name", href: serverHref(s.id) }, s.name),
       el("div", { class: "sub" }, `port ${s.port}`),
@@ -121,7 +145,7 @@ function renderServerRow(s) {
     el("div", {}, stateEl(s)),
     el("div", { class: "cell-muted" }, playingText(s), s.waiting ? el("div", { class: "note warn" }, `${s.waiting} waiting to be let in`) : null),
     el("div", {},
-      el("div", { class: "mono" }, s.version || "…"),
+      el("div", { class: "mono" }, s.version || word("noVersion")),
       upd ? el("div", { class: "note upd" + (upd.far ? " far" : "") }, upd.far ? "Well behind: update" : "Update ready") : null),
     el("div", { class: "cell-muted" }, whenShort(s.lastBackup)),
     el("div", { class: "acts" },
@@ -131,9 +155,11 @@ function renderServerRow(s) {
 }
 
 function renderDashboard(list, force) {
-  const key = JSON.stringify([list, latestVersion]);
+  const key = JSON.stringify([list, latestVersion, prefs.style]);
   if (key === dashKey && !force) return; // unchanged: keep keyboard focus
   dashKey = key;
+  $("servers-title").textContent = prefs.style === "treehouse" ? greeting() : "Servers";
+  $("dash-attempts-title").textContent = word("waiting");
   const head = el("div", { class: "srow head" },
     el("div", {}, "Server"), el("div", {}, "Status"), el("div", {}, "Playing"),
     el("div", {}, "Version"), el("div", {}, "Last backup"), el("div", {}));
@@ -195,7 +221,7 @@ async function loadDashAttempts(list) {
       const v = await api(`/api/servers/${encodeURIComponent(s.id)}/players`);
       for (const a of v.attempts || []) {
         rows.push(row(a.name, `${s.name} · ${ago(a.at)}`,
-          btn("Allow", async () => {
+          btn(word("allow"), async () => {
             try { await post(`/api/servers/${encodeURIComponent(s.id)}/allowlist`, { name: a.name }); } catch (err) { alert(err.message); }
             attemptsLoadedAt = 0;
             refresh();
@@ -223,7 +249,7 @@ let ovPlayersKey = ""; // what the Overview player list last showed
 let dashKey = "";      // what the dashboard last showed
 
 function renderDetailHead(s) {
-  const key = JSON.stringify([s.id, s.name, s.state, s.version, s.port, s.message, latestVersion, s.players.length]);
+  const key = JSON.stringify([s.id, s.name, s.state, s.version, s.port, s.message, latestVersion, s.players.length, prefs.style]);
   if (key === detailKey) return; // unchanged: keep keyboard focus where it is
   detailKey = key;
   $("detail-name").textContent = s.name;
@@ -559,7 +585,7 @@ function renderPlayers(v) {
   $("attempts-box").hidden = v.attempts.length === 0;
   $("attempts").replaceChildren(...v.attempts.map((a) => row(a.name,
     `${ago(a.at)}${a.verified ? "" : " · Xbox sign-in not checked (PlayStation or Switch)"}`,
-    btn("Allow", () => playersCall(() => post(sid() + "/allowlist", { name: a.name })), "primary"),
+    btn(word("allow"), () => playersCall(() => post(sid() + "/allowlist", { name: a.name })), "primary"),
     btn("Dismiss", () => playersCall(() => del(sid() + "/attempts/" + enc(a.name)))))));
 
   // Online
@@ -1215,11 +1241,18 @@ let prefs = { style: "control", mode: "auto" };
 // visit starts with it before the account's copy loads.
 function applyPrefs(p, save) {
   prefs = { style: p.style === "treehouse" ? "treehouse" : "control", mode: ["light", "dark", "auto"].includes(p.mode) ? p.mode : "auto" };
-  // Treehouse isn't built yet: show Control Room until it is.
-  document.documentElement.dataset.style = "control";
+  const changed = document.documentElement.dataset.style !== prefs.style;
+  document.documentElement.dataset.style = prefs.style;
   document.documentElement.dataset.mode = prefs.mode;
+  if (changed && signedIn) {
+    // Words and layout differ between styles: draw everything again.
+    dashKey = detailKey = "";
+    if (view === "servers") renderDashboard(serverList, true);
+    if (view === "server" && tab === "players") loadPlayers();
+    refresh();
+  }
   try { localStorage.setItem("bh-prefs", JSON.stringify(prefs)); } catch (_) { /* private window */ }
-  for (const r of document.querySelectorAll("input[name=style]")) r.checked = r.value === prefs.style || (prefs.style === "treehouse" && r.value === "control");
+  for (const r of document.querySelectorAll("input[name=style]")) r.checked = r.value === prefs.style;
   for (const r of document.querySelectorAll("input[name=mode]")) r.checked = r.value === prefs.mode;
   if (save) {
     api("/api/auth/prefs", { method: "PUT", body: JSON.stringify(prefs) })
