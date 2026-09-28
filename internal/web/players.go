@@ -9,24 +9,33 @@ import (
 )
 
 func (s *Server) playerRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /api/settings", s.getSettings)
-	mux.HandleFunc("POST /api/settings", s.saveSettings)
-	mux.HandleFunc("GET /api/servers/{id}/players", s.withServer(s.players))
-	mux.HandleFunc("POST /api/servers/{id}/allowlist", s.withServer(s.allowlistAdd))
-	mux.HandleFunc("DELETE /api/servers/{id}/allowlist/{name}", s.withServer(s.allowlistRemove))
-	mux.HandleFunc("POST /api/servers/{id}/allowlist-enabled", s.withServer(s.allowlistEnabled))
-	mux.HandleFunc("POST /api/servers/{id}/operators", s.withServer(s.opAdd))
-	mux.HandleFunc("DELETE /api/servers/{id}/operators/{name}", s.withServer(s.opRemove))
-	mux.HandleFunc("POST /api/servers/{id}/kick", s.withServer(s.kick))
-	mux.HandleFunc("POST /api/servers/{id}/message", s.withServer(s.message))
-	mux.HandleFunc("DELETE /api/servers/{id}/attempts/{name}", s.withServer(s.dismissAttempt))
+	mux.HandleFunc("GET /api/settings", ownerOnly(s.getSettings))
+	mux.HandleFunc("POST /api/settings", ownerOnly(s.saveSettings))
+	mux.HandleFunc("GET /api/servers/{id}/players", s.withServer(levelRun, s.players))
+	mux.HandleFunc("POST /api/servers/{id}/allowlist", s.withServer(levelRun, s.allowlistAdd))
+	mux.HandleFunc("DELETE /api/servers/{id}/allowlist/{name}", s.withServer(levelRun, s.allowlistRemove))
+	mux.HandleFunc("POST /api/servers/{id}/allowlist-enabled", s.withServer(levelRun, s.allowlistEnabled))
+	mux.HandleFunc("POST /api/servers/{id}/operators", s.withServer(levelRun, s.opAdd))
+	mux.HandleFunc("DELETE /api/servers/{id}/operators/{name}", s.withServer(levelRun, s.opRemove))
+	mux.HandleFunc("POST /api/servers/{id}/kick", s.withServer(levelRun, s.kick))
+	mux.HandleFunc("POST /api/servers/{id}/message", s.withServer(levelRun, s.message))
+	mux.HandleFunc("DELETE /api/servers/{id}/attempts/{name}", s.withServer(levelRun, s.dismissAttempt))
 }
 
-func (s *Server) withServer(h func(http.ResponseWriter, *http.Request, *servers.Server)) http.HandlerFunc {
+// withServer looks up the server in the address and checks the person asking
+// may do this with it (need is a level such as levelRun). Servers they can't
+// see at all are "not found", so their names don't leak.
+func (s *Server) withServer(need int, h func(http.ResponseWriter, *http.Request, *servers.Server)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		srv, ok := s.mgr.Get(r.PathValue("id"))
-		if !ok {
+		id := r.PathValue("id")
+		srv, ok := s.mgr.Get(id)
+		lv := me(r).Level(id)
+		if !ok || lv == 0 {
 			writeError(w, http.StatusNotFound, errors.New("no such server"))
+			return
+		}
+		if lv < need {
+			writeError(w, http.StatusForbidden, errNotAllowed)
 			return
 		}
 		if r.Method != http.MethodGet {
@@ -93,11 +102,11 @@ func (s *Server) allowlistAdd(w http.ResponseWriter, r *http.Request, srv *serve
 	if !readBody(w, r, &req) {
 		return
 	}
-	s.respondPlayers(w, srv, srv.AllowlistAdd(req.Name, srv.AttemptXUID(req.Name)), http.StatusBadRequest)
+	s.respondPlayers(w, srv, s.did(r, srv, srv.AllowlistAdd(req.Name, srv.AttemptXUID(req.Name)), "added "+req.Name+" to the allowlist"), http.StatusBadRequest)
 }
 
 func (s *Server) allowlistRemove(w http.ResponseWriter, r *http.Request, srv *servers.Server) {
-	s.respondPlayers(w, srv, srv.AllowlistRemove(r.PathValue("name")), http.StatusBadRequest)
+	s.respondPlayers(w, srv, s.did(r, srv, srv.AllowlistRemove(r.PathValue("name")), "took "+r.PathValue("name")+" off the allowlist"), http.StatusBadRequest)
 }
 
 func (s *Server) allowlistEnabled(w http.ResponseWriter, r *http.Request, srv *servers.Server) {
@@ -107,7 +116,11 @@ func (s *Server) allowlistEnabled(w http.ResponseWriter, r *http.Request, srv *s
 	if !readBody(w, r, &req) {
 		return
 	}
-	s.respondPlayers(w, srv, srv.SetAllowlistEnabled(req.Enabled), http.StatusInternalServerError)
+	text := "turned the allowlist off"
+	if req.Enabled {
+		text = "turned the allowlist on"
+	}
+	s.respondPlayers(w, srv, s.did(r, srv, srv.SetAllowlistEnabled(req.Enabled), text), http.StatusInternalServerError)
 }
 
 func (s *Server) opAdd(w http.ResponseWriter, r *http.Request, srv *servers.Server) {
@@ -118,11 +131,11 @@ func (s *Server) opAdd(w http.ResponseWriter, r *http.Request, srv *servers.Serv
 		return
 	}
 	_, err := srv.OpAdd(req.Name)
-	s.respondPlayers(w, srv, err, http.StatusBadRequest)
+	s.respondPlayers(w, srv, s.did(r, srv, err, "made "+req.Name+" an operator"), http.StatusBadRequest)
 }
 
 func (s *Server) opRemove(w http.ResponseWriter, r *http.Request, srv *servers.Server) {
-	s.respondPlayers(w, srv, srv.OpRemove(r.PathValue("name")), http.StatusBadRequest)
+	s.respondPlayers(w, srv, s.did(r, srv, srv.OpRemove(r.PathValue("name")), "took operator away from "+r.PathValue("name")), http.StatusBadRequest)
 }
 
 func (s *Server) kick(w http.ResponseWriter, r *http.Request, srv *servers.Server) {
@@ -133,7 +146,7 @@ func (s *Server) kick(w http.ResponseWriter, r *http.Request, srv *servers.Serve
 	if !readBody(w, r, &req) {
 		return
 	}
-	s.respondPlayers(w, srv, srv.Kick(req.Name, req.Reason), http.StatusConflict)
+	s.respondPlayers(w, srv, s.did(r, srv, srv.Kick(req.Name, req.Reason), "kicked "+req.Name), http.StatusConflict)
 }
 
 func (s *Server) message(w http.ResponseWriter, r *http.Request, srv *servers.Server) {

@@ -204,3 +204,86 @@ func TestNothingElseClearsWrongTries(t *testing.T) {
 		t.Error("should have been locked out long ago")
 	}
 }
+
+func TestOtherAccounts(t *testing.T) {
+	s, dir, owner := newOwner(t)
+	ctx := context.Background()
+	if err := s.CreateUser(ctx, "Ava", "ava password 1", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateUser(ctx, "SCOTT", "ava password 1", false); err == nil {
+		t.Error("an account with the owner's name")
+	}
+	if err := s.SetUser("ava", nil, map[string]string{"a": RoleCare, "b": RoleStart, "c": ""}); err != nil {
+		t.Fatal(err)
+	}
+	ava, err := s.Login(ctx, "ip2", "AVA", "ava password 1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := s.Who(ava)
+	if p == nil || p.Name != "Ava" || p.Owner || p.Level("a") != 3 || p.Level("b") != 1 || p.Level("c") != 0 {
+		t.Fatalf("Ava: %+v", p)
+	}
+	if o := s.Who(owner); o == nil || !o.Owner || o.Level("anything") != OwnerLevel {
+		t.Fatalf("owner: %+v", o)
+	}
+	// Ava changing her password signs out her other browsers, not the owner.
+	ava2, _ := s.Login(ctx, "ip2", "Ava", "ava password 1")
+	if err := s.ChangePassword(ctx, "ip2", ava, "ava password 1", "ava password 2"); err != nil {
+		t.Fatal(err)
+	}
+	if s.Who(ava2) != nil || s.Who(ava) == nil || s.Who(owner) == nil {
+		t.Error("wrong sessions ended")
+	}
+	s.LogoutAll(ava)
+	if s.Who(ava) != nil || s.Who(owner) == nil {
+		t.Error("LogoutAll")
+	}
+	// Grants survive reopening, and the owner can't be given a role.
+	if err := s.Grant("scott", "x", RoleRun); err != nil {
+		t.Error(err)
+	}
+	s2, err := Open(dir, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	users := s2.Users()
+	if len(users) != 1 || users[0].Grants["a"] != RoleCare || len(users[0].Grants) != 2 {
+		t.Errorf("users: %+v", users)
+	}
+	if s2.Who(owner) == nil {
+		t.Error("owner signed out by reopening")
+	}
+	if _, err := s2.Login(ctx, "ip3", "ava", "ava password 2"); err != nil {
+		t.Error(err)
+	}
+	if err := s2.DeleteUser("Ava"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s2.Login(ctx, "ip3", "ava", "ava password 2"); err == nil {
+		t.Error("removed account signed in")
+	}
+}
+
+func TestRemovingByAnUntidyNameSignsOut(t *testing.T) {
+	s, _, _ := newOwner(t)
+	ctx := context.Background()
+	s.CreateUser(ctx, "Ava", "ava password 1", false)
+	tok, _ := s.Login(ctx, "ip", "ava", "ava password 1")
+	// Permission changes don't count as a password change.
+	s.SetUser("Ava", nil, map[string]string{"x": RoleRun})
+	s.SetUser("Ava", nil, map[string]string{"y": RoleStart})
+	if u := s.Users(); len(u[0].Grants) != 2 {
+		t.Errorf("changes undid each other: %v", u[0].Grants)
+	}
+	if err := s.CreateUser(ctx, "ſam", "sam password 1", false); err == nil {
+		t.Error("a name that looks like another")
+	}
+	if err := s.DeleteUser(" AVA "); err != nil {
+		t.Fatal(err)
+	}
+	if s.Who(tok) != nil {
+		t.Error("session outlived its account")
+	}
+}

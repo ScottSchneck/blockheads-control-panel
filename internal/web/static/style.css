@@ -494,3 +494,25 @@ html[data-style="treehouse"] .style-card { border-radius: 16px; }
   html[data-style="treehouse"] .tabbar { border-top-width: 2px; }
   html[data-style="treehouse"] .tabbar a { font-size: 12px; }
 }
+
+/* ---- People (owner only) ---- */
+.roles-help dl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px 18px; margin: 0; }
+.roles-help dt { font-weight: 600; }
+.roles-help dd { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+.person-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.person-head h2 { margin: 0; }
+.person-head .grow { flex: 1; }
+.person-head small { color: var(--muted); font-size: 12px; }
+.grants { list-style: none; margin: 10px 0 12px; padding: 0; }
+.grants li { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-top: 1px solid var(--line-2); }
+.grants li:first-child { border-top: none; }
+.grants li span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.grants select { width: 13em; }
+.grants li.none span { color: var(--muted); }
+.activity li { padding: 7px 0; }
+.activity .who { font-size: 14px; }
+@media (max-width: 720px) {
+  .roles-help dl { grid-template-columns: 1fr; }
+  .grants li { flex-wrap: wrap; }
+  .grants select { width: 100%; }
+}

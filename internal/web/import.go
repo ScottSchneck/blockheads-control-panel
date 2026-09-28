@@ -8,8 +8,8 @@ import (
 )
 
 func (s *Server) importRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /api/import", s.listImports)
-	mux.HandleFunc("POST /api/import", s.startImport)
+	mux.HandleFunc("GET /api/import", ownerOnly(s.listImports))
+	mux.HandleFunc("POST /api/import", ownerOnly(s.startImport))
 }
 
 func (s *Server) listImports(w http.ResponseWriter, r *http.Request) {
@@ -46,6 +46,9 @@ func (s *Server) startImport(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
+	}
+	if srv, ok := s.mgr.Get(st.ID); ok {
+		s.note(r, srv, "imported the server from "+req.Path)
 	}
 	writeJSON(w, http.StatusAccepted, st)
 }

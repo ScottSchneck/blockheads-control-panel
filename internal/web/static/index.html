@@ -48,6 +48,7 @@
 
   <form id="reset-form" class="card" hidden>
     <h2>Set a new password</h2>
+    <p class="muted small">This is for the panel's owner. Anyone else: ask the owner, who can give you a new password on the People page.</p>
     <p class="muted small">On the Unraid server, run this and type the code it prints:</p>
     <code class="block">docker exec blockheads blockheads reset-password</code>
     <input id="reset-user" type="text" autocomplete="username" hidden aria-hidden="true" tabindex="-1">
@@ -74,6 +75,7 @@
     <a class="brand" href="#/"><svg class="logo" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l9 5v10l-9 5-9-5V7z"></path><path d="M3 7l9 5 9-5"></path><path d="M12 12v10"></path></svg><span>Blockheads</span></a>
     <a class="nav" href="#/" data-nav="servers"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="6" rx="1.5"></rect><rect x="3" y="14" width="18" height="6" rx="1.5"></rect><path d="M7 7h.01M7 17h.01"></path></svg>Servers</a>
     <a class="nav" href="#/backups" data-nav="backups"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="5" rx="1"></rect><path d="M5 9v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9M10 13h4"></path></svg>Backups</a>
+    <a class="nav" href="#/people" data-nav="people" data-owner-only><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.5"></circle><path d="M2.5 20c.8-3.5 3.3-5.5 6.5-5.5s5.7 2 6.5 5.5"></path><circle cx="17" cy="9" r="2.5"></circle><path d="M16.5 14.5c2.6.2 4.4 2 5 5"></path></svg>People</a>
     <div class="sidebar-foot">
       <a class="nav" href="#/help" data-nav="help"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14"></path><path d="M12 17.5h.01"></path></svg>Help</a>
       <a class="list-card" href="#/help">
@@ -93,15 +95,15 @@
           <h1 id="servers-title">Servers</h1>
           <p id="servers-summary" class="muted"></p>
         </div>
-        <a class="button" href="#/import">Import</a>
-        <a class="button primary" href="#/add">Add server</a>
+        <a class="button" href="#/import" data-owner-only>Import</a>
+        <a class="button primary" href="#/add" data-can-add>Add server</a>
       </div>
       <div id="update-banner" class="banner info" hidden>
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5"></path><path d="M4 19h16"></path></svg>
         <p id="update-banner-text" class="grow"></p>
         <button type="button" id="update-all">Update all</button>
       </div>
-      <p id="empty" class="card muted" hidden>No servers yet. <a href="#/add">Add a server</a> to download Bedrock and start one, or <a href="#/import">import</a> your servers from Crafty.</p>
+      <p id="empty" class="card muted" hidden></p>
       <div id="servers" class="server-table"></div>
       <div class="dash-cards">
         <section id="dash-attempts" class="card attention" hidden>
@@ -132,6 +134,7 @@
         <label>Your gamertag
           <input id="add-owner" maxlength="32" placeholder="Optional: you'll be on the allowlist and an operator" autocomplete="off">
         </label>
+        <p class="muted small" id="add-kid-note" hidden>You'll take care of this server: turn it on and off, let friends in, change settings, back it up and restore it. Only the owner can delete it.</p>
         <label class="check">
           <input id="add-eula" type="checkbox" required>
           <span>I accept the <a href="https://www.minecraft.net/eula" target="_blank" rel="noopener">Minecraft EULA</a>. The server is downloaded from Mojang.</span>
@@ -167,6 +170,7 @@
     <section id="view-backups" class="view" hidden>
       <h1>Backups</h1>
       <p class="muted">Each server's backups, schedule and restore are on its Backups tab.</p>
+      <p id="backups-none" class="card muted" hidden>None of your servers' backups are yours to see. Ask the owner.</p>
       <div id="backups-overview" class="server-table"></div>
     </section>
 
@@ -194,11 +198,16 @@
 
       <h2 class="section-title">The panel</h2>
       <div class="card help-links">
-        <a href="#/guide"><b>Setup guide</b><span class="muted">Your gamertag, how consoles join, your servers, and a checklist of what's left.</span></a>
-        <a href="#/import"><b>Import servers</b><span class="muted">Copy servers in from Crafty Controller or another folder.</span></a>
+        <a href="#/guide" data-owner-only><b>Setup guide</b><span class="muted">Your gamertag, how consoles join, your servers, and a checklist of what's left.</span></a>
+        <a href="#/import" data-owner-only><b>Import servers</b><span class="muted">Copy servers in from Crafty Controller or another folder.</span></a>
+        <a href="#/people" data-owner-only><b>People</b><span class="muted">Accounts for your kids, and which servers each one can use.</span></a>
         <a href="#/account"><b>Appearance and password</b><span class="muted">Light or dark, change your password, sign out.</span></a>
       </div>
-      <div class="card">
+      <div class="card" data-not-owner>
+        <h2>Forgot your password?</h2>
+        <p class="muted">Ask <span class="owner-name">the owner</span>: they can give you a new one.</p>
+      </div>
+      <div class="card" data-owner-only>
         <h2>Forgot your password?</h2>
         <p class="muted">On the Unraid server, run this, then choose "Forgot your password?" on the sign-in page and type the code it prints. The code works once, for an hour.</p>
         <code class="block">docker exec blockheads blockheads reset-password</code>
@@ -257,6 +266,47 @@
       </section>
     </section>
 
+    <!-- People (owner only) -->
+    <section id="view-people" class="view narrow" hidden>
+      <h1>People</h1>
+      <p class="muted">Give each kid their own sign-in, then choose what they can do on each server. They only see the servers you give them. Nobody but you can delete a server or manage accounts.</p>
+
+      <div class="card roles-help">
+        <dl>
+          <div><dt>Can turn it on</dt><dd>Sees the server and can start it. Nothing else.</dd></div>
+          <div><dt>Runs it</dt><dd>Also turn it off and restart it, let friends in, change settings, use the console, and make a backup.</dd></div>
+          <div><dt>Takes care of it</dt><dd>Also update it, restore a backup, set the backup schedule, and download or delete backups.</dd></div>
+        </dl>
+      </div>
+
+      <p id="people-error" class="error" hidden></p>
+      <div id="people-list"></div>
+
+      <form id="person-form" class="card">
+        <h2>Add someone</h2>
+        <div class="row">
+          <label class="inline">Username
+            <input id="person-name" maxlength="32" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" required>
+          </label>
+          <label class="inline">Password
+            <input id="person-pass" type="text" minlength="8" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" required class="mono">
+          </label>
+        </div>
+        <label class="check">
+          <input id="person-canadd" type="checkbox">
+          <span>Can add new servers (they take care of the ones they add)</span>
+        </label>
+        <p class="muted small">At least 8 characters. Tell them the password; they can change it on their Account page.</p>
+        <div class="row"><button type="submit" class="primary">Add</button></div>
+        <p id="person-error" class="error" hidden></p>
+      </form>
+
+      <section class="card">
+        <h2>Recent activity</h2>
+        <ul id="people-activity" class="people activity"></ul>
+      </section>
+    </section>
+
     <!-- Account -->
     <section id="view-account" class="view narrow" hidden>
       <h1>Signed in as <span id="account-name"></span></h1>
@@ -288,6 +338,12 @@
           </div>
         </fieldset>
         <p id="prefs-error" class="error" hidden></p>
+      </section>
+
+      <section class="card" data-owner-only>
+        <h2>People</h2>
+        <p class="muted small">Give your kids their own sign-in, and choose what each one can do on each server.</p>
+        <a class="button" href="#/people">Open People</a>
       </section>
 
       <section class="card">
@@ -366,7 +422,11 @@
             <section class="card">
               <div class="row between"><h2>Backups</h2><button type="button" id="ov-backup-now">Back up now</button></div>
               <p id="ov-backups" class="muted"></p>
-              <a href="#" data-goto="backups">Restore or download</a>
+              <a href="#" data-goto="backups" id="ov-backups-link">Restore or download</a>
+            </section>
+            <section class="card">
+              <h2>Recent activity</h2>
+              <ul id="ov-activity" class="people activity"></ul>
             </section>
           </div>
         </div>

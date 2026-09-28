@@ -1,13 +1,18 @@
-// Package auth keeps the panel's owner account and sign-in sessions.
+// Package auth keeps the panel's accounts (the owner, and people the owner
+// adds, such as kids) and sign-in sessions.
 //
-// Phase 1 has one account, the owner. Until it exists the panel is in setup
-// mode, and creating it needs the setup code from the container log, so
-// nobody else on the network can claim the panel first. The same code file
-// is used to reset a forgotten password (see WriteResetCode).
+// The owner can do everything. Until the owner's account exists the panel is
+// in setup mode, and creating it needs the setup code from the container log,
+// so nobody else on the network can claim the panel first. The same code file
+// is used to reset the owner's forgotten password (see WriteResetCode).
+//
+// Everyone else gets a role on each server the owner assigns them (see
+// RoleStart, RoleRun and RoleCare) and, optionally, may add servers. They
+// see only their servers, and nobody but the owner can delete one.
 //
 // Files in the data folder:
 //
-//	accounts.json  the owner account; the password is hashed with Argon2id
+//	accounts.json  the accounts; passwords are hashed with Argon2id
 //	sessions.json  signed-in browsers (only hashes of their tokens)
 //	setup-code     present while setup or a password reset is pending
 package auth
@@ -58,14 +63,18 @@ const (
 )
 
 var (
-	ErrBadLogin   = errors.New("that username and password don't match")
-	ErrBadCode    = errors.New("that code isn't right")
-	ErrNoCode     = errors.New("no reset code is waiting, or it's more than an hour old; run \"docker exec blockheads blockheads reset-password\" to make a new one")
-	ErrHasOwner   = errors.New("the panel already has an owner; sign in instead")
-	ErrBusy       = errors.New("the panel is busy checking passwords; try again in a moment")
-	ErrChanged    = errors.New("the password was just changed; sign in again")
-	reUsername    = regexp.MustCompile(`^[\pL\pN][\pL\pN ._-]{0,31}$`)
-	errUsername   = errors.New("pick a username of 1 to 32 letters, numbers, spaces, dots, dashes or underscores")
+	ErrBadLogin = errors.New("that username and password don't match")
+	ErrBadCode  = errors.New("that code isn't right")
+	ErrNoCode   = errors.New("no reset code is waiting, or it's more than an hour old; run \"docker exec blockheads blockheads reset-password\" to make a new one")
+	ErrHasOwner = errors.New("the panel already has an owner; sign in instead")
+	ErrBusy     = errors.New("the panel is busy checking passwords; try again in a moment")
+	ErrChanged  = errors.New("the password was just changed; sign in again")
+	reUsername  = regexp.MustCompile(`^[\pL\pN][\pL\pN ._-]{0,31}$`)
+	errUsername = errors.New("pick a username of 1 to 32 letters, numbers, spaces, dots, dashes or underscores")
+	// Other accounts use plain letters, so names can't look alike and
+	// matching them ignoring case is simple.
+	reKidName     = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9 ._-]{0,31}$`)
+	errKidName    = errors.New("pick a username of 1 to 32 letters (A to Z), numbers, spaces, dots, dashes or underscores")
 	errPassLength = fmt.Errorf("use a password of at least %d characters", minPassword)
 )
 
@@ -90,8 +99,12 @@ type Account struct {
 	Hash            string    `json:"hash"`
 	Created         time.Time `json:"created"`
 	PasswordChanged time.Time `json:"passwordChanged"`
-	// Prefs are the owner's page preferences, such as the look.
+	// Prefs are page preferences, such as the look.
 	Prefs map[string]string `json:"prefs,omitempty"`
+	// For accounts other than the owner's: whether they may add servers,
+	// and their role on each server they can see (server ID -> role).
+	CanAdd bool              `json:"canAdd,omitempty"`
+	Grants map[string]string `json:"grants,omitempty"`
 }
 
 type session struct {
@@ -117,6 +130,7 @@ type Store struct {
 	// existing installs don't need to look up anything new.
 	legacyCode string
 	owner      *Account
+	users      map[string]*Account // everyone else, by lower-case name
 	sessions   map[string]*session
 	fails      map[string]*failures // by address
 	hashSem    chan struct{}
@@ -129,7 +143,7 @@ type Store struct {
 func Open(dir, legacyCode string) (*Store, error) {
 	s := &Store{
 		dir: dir, legacyCode: strings.TrimSpace(legacyCode),
-		sessions: map[string]*session{}, fails: map[string]*failures{},
+		users: map[string]*Account{}, sessions: map[string]*session{}, fails: map[string]*failures{},
 		hashSem: make(chan struct{}, 2), // Argon2 uses 64 MB each
 		now:     time.Now,
 	}
@@ -137,13 +151,19 @@ func Open(dir, legacyCode string) (*Store, error) {
 	switch {
 	case err == nil:
 		var f struct {
-			Owner *Account `json:"owner"`
+			Owner *Account   `json:"owner"`
+			Users []*Account `json:"users"`
 		}
 		if err := json.Unmarshal(b, &f); err != nil {
 			return nil, fmt.Errorf("accounts.json is damaged: %w", err)
 		}
 		if f.Owner != nil && f.Owner.Username != "" && f.Owner.Hash != "" {
 			s.owner = f.Owner
+		}
+		for _, u := range f.Users {
+			if u != nil && u.Username != "" && u.Hash != "" && s.owner != nil && !strings.EqualFold(u.Username, s.owner.Username) {
+				s.users[strings.ToLower(u.Username)] = u
+			}
 		}
 	case !os.IsNotExist(err):
 		return nil, err
@@ -152,7 +172,7 @@ func Open(dir, legacyCode string) (*Store, error) {
 		var list []*session
 		if json.Unmarshal(b, &list) == nil {
 			for _, x := range list {
-				if s.owner != nil && strings.EqualFold(x.Username, s.owner.Username) && s.now().Sub(x.LastSeen) < SessionLength {
+				if s.accountLocked(x.Username) != nil && s.now().Sub(x.LastSeen) < SessionLength {
 					s.sessions[x.Hash] = x
 				}
 			}
@@ -346,10 +366,9 @@ func (s *Store) Setup(ctx context.Context, ip, code, username, password string) 
 	}
 	now := s.now().UTC()
 	acct := &Account{Username: username, Hash: hash, Created: now, PasswordChanged: now}
-	if err := s.saveAccountLocked(acct); err != nil {
+	if err := s.commitLocked(acct, s.users); err != nil {
 		return "", err
 	}
-	s.owner = acct
 	_ = os.Remove(s.path("setup-code"))
 	_ = os.Remove(s.path("panel-password")) // the old shared password is gone for good
 	s.legacyCode = ""
@@ -364,11 +383,11 @@ func (s *Store) Login(ctx context.Context, ip, username, password string) (strin
 		return "", err
 	}
 	s.mu.Lock()
-	owner := s.owner
+	acct := s.accountLocked(username)
 	s.mu.Unlock()
 	var ok bool
-	if owner != nil && strings.EqualFold(owner.Username, username) {
-		ok, err = s.verify(ctx, owner.Hash, password)
+	if acct != nil {
+		ok, err = s.verify(ctx, acct.Hash, password)
 	} else {
 		_, err = s.verify(ctx, dummyHash(), password) // same time either way
 	}
@@ -382,10 +401,10 @@ func (s *Store) Login(ctx context.Context, ip, username, password string) (strin
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.owner != owner {
-		return "", ErrChanged // reset or changed while this was checked
+	if !s.samePasswordLocked(acct) {
+		return "", ErrChanged // reset, changed or removed while this was checked
 	}
-	return s.newSessionLocked(owner.Username)
+	return s.newSessionLocked(acct.Username)
 }
 
 // Reset sets a new owner password using a code from WriteResetCode. Every
@@ -420,20 +439,19 @@ func (s *Store) Reset(ctx context.Context, ip, code, password string) (string, e
 	if err := s.codeMatchesLocked(code, false); err != nil {
 		return "", err // used meanwhile
 	}
-	acct := *s.owner
+	acct := s.owner.clone()
 	acct.Hash, acct.PasswordChanged = hash, s.now().UTC()
-	if err := s.saveAccountLocked(&acct); err != nil {
+	if err := s.commitLocked(acct, s.users); err != nil {
 		return "", err
 	}
-	s.owner = &acct
 	_ = os.Remove(s.path("setup-code"))
 	s.sessions = map[string]*session{}
 	return s.newSessionLocked(acct.Username)
 }
 
-// ChangePassword changes the owner's password. Other browsers are signed
-// out; keep is the current session's token.
-func (s *Store) ChangePassword(ctx context.Context, ip, keep, current, next string) error {
+// ChangePassword changes the password of the account signed in with token.
+// Its other browsers are signed out.
+func (s *Store) ChangePassword(ctx context.Context, ip, token, current, next string) error {
 	if err := checkPassword(next); err != nil {
 		return err
 	}
@@ -442,13 +460,13 @@ func (s *Store) ChangePassword(ctx context.Context, ip, keep, current, next stri
 		return err
 	}
 	s.mu.Lock()
-	owner := s.owner
+	acct := s.sessionAccountLocked(token)
 	s.mu.Unlock()
-	if owner == nil {
+	if acct == nil {
 		done(tryNeutral)
-		return errors.New("no account")
+		return errors.New("sign in again")
 	}
-	ok, err := s.verify(ctx, owner.Hash, current)
+	ok, err := s.verify(ctx, acct.Hash, current)
 	if err != nil {
 		done(tryNeutral)
 		return err
@@ -463,48 +481,109 @@ func (s *Store) ChangePassword(ctx context.Context, ip, keep, current, next stri
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.owner != owner {
+	if !s.samePasswordLocked(acct) {
 		return ErrChanged
 	}
-	acct := *s.owner
-	acct.Hash, acct.PasswordChanged = hash, s.now().UTC()
-	if err := s.saveAccountLocked(&acct); err != nil {
+	acct = s.accountLocked(acct.Username) // the newest copy (its permissions may have changed)
+	changed := acct.clone()
+	changed.Hash, changed.PasswordChanged = hash, s.now().UTC()
+	if err := s.replaceLocked(acct, changed); err != nil {
 		return err
 	}
-	s.owner = &acct
-	keepHash := tokenHash(keep)
-	for h := range s.sessions {
-		if h != keepHash {
+	keepHash := tokenHash(token)
+	for h, x := range s.sessions {
+		if h != keepHash && strings.EqualFold(x.Username, acct.Username) {
 			delete(s.sessions, h)
 		}
 	}
 	return s.saveSessionsLocked()
 }
 
-// Check returns the username for a session token, or "" if it isn't valid.
-// Using a session keeps it alive.
-func (s *Store) Check(token string) string {
+// Principal is who's signed in on a request.
+type Principal struct {
+	Name   string
+	Owner  bool
+	CanAdd bool              // may add servers (kids)
+	Grants map[string]string // server ID -> role (kids)
+}
+
+// Role is what a kid may do with one server. Each role includes the ones
+// before it.
+const (
+	RoleStart = "start" // see it, and turn it on
+	RoleRun   = "run"   // run it: stop, players, settings, console, back up
+	RoleCare  = "care"  // look after it: also update, restore, backup schedule
+)
+
+// RoleLevel orders roles; 0 is none. The owner is above all of them.
+func RoleLevel(role string) int {
+	switch role {
+	case RoleStart:
+		return 1
+	case RoleRun:
+		return 2
+	case RoleCare:
+		return 3
+	}
+	return 0
+}
+
+// OwnerLevel is the owner's level, above every role.
+const OwnerLevel = 4
+
+// Level is what p may do with the server id.
+func (p *Principal) Level(id string) int {
+	if p == nil {
+		return 0
+	}
+	if p.Owner {
+		return OwnerLevel
+	}
+	return RoleLevel(p.Grants[id])
+}
+
+// Who returns who's signed in with a session token, or nil. Using a session
+// keeps it alive.
+func (s *Store) Who(token string) *Principal {
 	if token == "" {
-		return ""
+		return nil
 	}
 	h := tokenHash(token)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	x, ok := s.sessions[h]
-	if !ok || s.owner == nil {
-		return ""
+	if !ok {
+		return nil
+	}
+	acct := s.accountLocked(x.Username)
+	if acct == nil {
+		delete(s.sessions, h) // the account was removed
+		_ = s.saveSessionsLocked()
+		return nil
 	}
 	now := s.now()
 	if now.Sub(x.LastSeen) >= SessionLength {
 		delete(s.sessions, h)
 		_ = s.saveSessionsLocked()
-		return ""
+		return nil
 	}
 	if now.Sub(x.LastSeen) > time.Hour {
 		x.LastSeen = now.UTC()
 		_ = s.saveSessionsLocked()
 	}
-	return s.owner.Username
+	p := &Principal{Name: acct.Username, Owner: acct == s.owner, CanAdd: acct.CanAdd, Grants: map[string]string{}}
+	for k, v := range acct.Grants {
+		p.Grants[k] = v
+	}
+	return p
+}
+
+// Check returns the username for a session token, or "" if it isn't valid.
+func (s *Store) Check(token string) string {
+	if p := s.Who(token); p != nil {
+		return p.Name
+	}
+	return ""
 }
 
 // Logout ends one session.
@@ -515,11 +594,19 @@ func (s *Store) Logout(token string) {
 	_ = s.saveSessionsLocked()
 }
 
-// LogoutAll ends every session.
-func (s *Store) LogoutAll() {
+// LogoutAll ends every session of the account signed in with token.
+func (s *Store) LogoutAll(token string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.sessions = map[string]*session{}
+	acct := s.sessionAccountLocked(token)
+	if acct == nil {
+		return
+	}
+	for h, x := range s.sessions {
+		if strings.EqualFold(x.Username, acct.Username) {
+			delete(s.sessions, h)
+		}
+	}
 	_ = s.saveSessionsLocked()
 }
 
@@ -533,49 +620,321 @@ func (s *Store) Username() string {
 	return s.owner.Username
 }
 
-// Prefs returns the owner's page preferences.
-func (s *Store) Prefs() map[string]string {
+// Prefs returns an account's page preferences.
+func (s *Store) Prefs(username string) map[string]string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	out := map[string]string{}
-	if s.owner != nil {
-		for k, v := range s.owner.Prefs {
+	if a := s.accountLocked(username); a != nil {
+		for k, v := range a.Prefs {
 			out[k] = v
 		}
 	}
 	return out
 }
 
-// SetPrefs merges page preferences into the owner's account.
-func (s *Store) SetPrefs(p map[string]string) error {
+// SetPrefs merges page preferences into an account.
+func (s *Store) SetPrefs(username string, p map[string]string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.owner == nil {
+	a := s.accountLocked(username)
+	if a == nil {
 		return errors.New("no account")
 	}
-	acct := *s.owner
-	acct.Prefs = map[string]string{}
-	for k, v := range s.owner.Prefs {
-		acct.Prefs[k] = v
+	// Prefs are replaced as a whole map, so copies of the account made
+	// elsewhere never see it change underneath them. The account itself is
+	// kept (not swapped), so sign-ins in progress stay valid.
+	prefs := map[string]string{}
+	for k, v := range a.Prefs {
+		prefs[k] = v
 	}
 	for k, v := range p {
-		acct.Prefs[k] = v
+		prefs[k] = v
 	}
-	if err := s.saveAccountLocked(&acct); err != nil {
+	old := a.Prefs
+	a.Prefs = prefs
+	if err := s.saveLocked(); err != nil {
+		a.Prefs = old
 		return err
 	}
-	// Same account, same password: keep sign-ins in progress valid by
-	// updating in place rather than swapping the pointer.
-	s.owner.Prefs = acct.Prefs
 	return nil
 }
 
-// IsOwnerName reports whether name is the owner's username (for logging
-// without writing down whatever else people type).
+// IsOwnerName reports whether name is the owner's username.
 func (s *Store) IsOwnerName(name string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.owner != nil && strings.EqualFold(strings.TrimSpace(name), s.owner.Username)
+}
+
+// IsAccountName reports whether an account of that name exists (for logging
+// without writing down whatever else people type).
+func (s *Store) IsAccountName(name string) (string, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if a := s.accountLocked(strings.TrimSpace(name)); a != nil {
+		return a.Username, true
+	}
+	return "", false
+}
+
+// ---- other people's accounts (managed by the owner) ----
+
+// User describes an account for the People page.
+type User struct {
+	Username string            `json:"username"`
+	CanAdd   bool              `json:"canAdd"`
+	Grants   map[string]string `json:"grants"`
+	Created  time.Time         `json:"created"`
+	LastSeen *time.Time        `json:"lastSeen,omitempty"`
+}
+
+// Users lists the accounts other than the owner, by name.
+func (s *Store) Users() []User {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	seen := map[string]time.Time{}
+	for _, x := range s.sessions {
+		k := strings.ToLower(x.Username)
+		if x.LastSeen.After(seen[k]) {
+			seen[k] = x.LastSeen
+		}
+	}
+	out := []User{}
+	for k, a := range s.users {
+		u := User{Username: a.Username, CanAdd: a.CanAdd, Grants: map[string]string{}, Created: a.Created}
+		for id, r := range a.Grants {
+			u.Grants[id] = r
+		}
+		if t, ok := seen[k]; ok {
+			t := t
+			u.LastSeen = &t
+		}
+		out = append(out, u)
+	}
+	sort.Slice(out, func(i, j int) bool { return strings.ToLower(out[i].Username) < strings.ToLower(out[j].Username) })
+	return out
+}
+
+// CreateUser adds an account for someone else, such as a kid.
+func (s *Store) CreateUser(ctx context.Context, username, password string, canAdd bool) error {
+	username = strings.TrimSpace(username)
+	if !reKidName.MatchString(username) {
+		return errKidName
+	}
+	if err := checkPassword(password); err != nil {
+		return err
+	}
+	hash, err := s.hash(ctx, password)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.accountLocked(username) != nil {
+		return fmt.Errorf("there's already an account called %q", username)
+	}
+	now := s.now().UTC()
+	a := &Account{Username: username, Hash: hash, Created: now, PasswordChanged: now, CanAdd: canAdd,
+		Grants: map[string]string{}, Prefs: map[string]string{"style": "treehouse"}}
+	users := s.usersCopyLocked()
+	users[strings.ToLower(username)] = a
+	return s.commitLocked(s.owner, users)
+}
+
+// ErrNoUser means there's no such account (other than the owner).
+var ErrNoUser = errors.New("no such account")
+
+// SetUserPassword gives someone a new password and signs them out.
+func (s *Store) SetUserPassword(ctx context.Context, username, password string) error {
+	if err := checkPassword(password); err != nil {
+		return err
+	}
+	hash, err := s.hash(ctx, password)
+	if err != nil {
+		return err
+	}
+	return s.changeUser(username, func(a *Account) {
+		a.Hash, a.PasswordChanged = hash, s.now().UTC()
+	}, true)
+}
+
+// SetUser changes what someone may do: whether they may add servers (nil
+// leaves it), and their role on the servers named in grants (an empty role
+// removes it). Servers not named keep their role, so two changes made at
+// once don't undo each other.
+func (s *Store) SetUser(username string, canAdd *bool, grants map[string]string) error {
+	for _, r := range grants {
+		if r != "" && RoleLevel(r) == 0 {
+			return fmt.Errorf("unknown role %q", r)
+		}
+	}
+	return s.changeUser(username, func(a *Account) {
+		if canAdd != nil {
+			a.CanAdd = *canAdd
+		}
+		g := map[string]string{}
+		for id, r := range a.Grants {
+			g[id] = r
+		}
+		for id, r := range grants {
+			if r == "" {
+				delete(g, id)
+			} else {
+				g[id] = r
+			}
+		}
+		a.Grants = g
+	}, false)
+}
+
+// Grant gives someone a role on one server (used when they add a server).
+func (s *Store) Grant(username, serverID, role string) error {
+	if RoleLevel(role) == 0 {
+		return fmt.Errorf("unknown role %q", role)
+	}
+	s.mu.Lock()
+	isOwner := s.owner != nil && strings.EqualFold(s.owner.Username, username)
+	s.mu.Unlock()
+	if isOwner {
+		return nil // the owner can do everything already
+	}
+	return s.changeUser(username, func(a *Account) {
+		g := map[string]string{}
+		for k, v := range a.Grants {
+			g[k] = v
+		}
+		g[serverID] = role
+		a.Grants = g
+	}, false)
+}
+
+// DeleteUser removes someone's account and signs them out.
+func (s *Store) DeleteUser(username string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	k := strings.ToLower(strings.TrimSpace(username))
+	if _, ok := s.users[k]; !ok {
+		return ErrNoUser
+	}
+	name := s.users[k].Username
+	users := s.usersCopyLocked()
+	delete(users, k)
+	if err := s.commitLocked(s.owner, users); err != nil {
+		return err
+	}
+	s.dropSessionsLocked(name)
+	return s.saveSessionsLocked()
+}
+
+// changeUser applies change to a copy of someone's account and saves it.
+func (s *Store) changeUser(username string, change func(*Account), signOut bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	k := strings.ToLower(strings.TrimSpace(username))
+	old, ok := s.users[k]
+	if !ok {
+		return ErrNoUser
+	}
+	a := old.clone()
+	change(a)
+	if err := s.replaceLocked(old, a); err != nil {
+		return err
+	}
+	if signOut {
+		s.dropSessionsLocked(a.Username)
+		return s.saveSessionsLocked()
+	}
+	return nil
+}
+
+func (s *Store) dropSessionsLocked(username string) {
+	for h, x := range s.sessions {
+		if strings.EqualFold(x.Username, username) {
+			delete(s.sessions, h)
+		}
+	}
+}
+
+// ---- account storage ----
+
+// samePasswordLocked reports whether acct (read before checking a password)
+// still exists with the same password. Other changes, such as permissions,
+// replace the account too but don't matter to a sign-in.
+func (s *Store) samePasswordLocked(acct *Account) bool {
+	cur := s.accountLocked(acct.Username)
+	return cur != nil && cur.Hash == acct.Hash && cur.PasswordChanged.Equal(acct.PasswordChanged)
+}
+
+// accountLocked finds an account (the owner's or someone else's) by name.
+func (s *Store) accountLocked(username string) *Account {
+	username = strings.TrimSpace(username)
+	if s.owner != nil && strings.EqualFold(s.owner.Username, username) {
+		return s.owner
+	}
+	return s.users[strings.ToLower(username)]
+}
+
+func (s *Store) sessionAccountLocked(token string) *Account {
+	x, ok := s.sessions[tokenHash(token)]
+	if !ok {
+		return nil
+	}
+	return s.accountLocked(x.Username)
+}
+
+func (a *Account) clone() *Account {
+	c := *a
+	c.Grants = map[string]string{}
+	for k, v := range a.Grants {
+		c.Grants[k] = v
+	}
+	return &c
+}
+
+func (s *Store) usersCopyLocked() map[string]*Account {
+	out := make(map[string]*Account, len(s.users))
+	for k, v := range s.users {
+		out[k] = v
+	}
+	return out
+}
+
+// replaceLocked swaps an account for a changed copy, so a password check in
+// progress on the old one can tell (see Login).
+func (s *Store) replaceLocked(old, a *Account) error {
+	if old == s.owner {
+		return s.commitLocked(a, s.users)
+	}
+	users := s.usersCopyLocked()
+	users[strings.ToLower(a.Username)] = a
+	return s.commitLocked(s.owner, users)
+}
+
+// commitLocked saves new accounts and, if that works, uses them.
+func (s *Store) commitLocked(owner *Account, users map[string]*Account) error {
+	if err := writeAccounts(s.path("accounts.json"), owner, users); err != nil {
+		return err
+	}
+	s.owner, s.users = owner, users
+	return nil
+}
+
+func (s *Store) saveLocked() error {
+	return writeAccounts(s.path("accounts.json"), s.owner, s.users)
+}
+
+func writeAccounts(path string, owner *Account, users map[string]*Account) error {
+	list := make([]*Account, 0, len(users))
+	for _, a := range users {
+		list = append(list, a)
+	}
+	sort.Slice(list, func(i, j int) bool { return strings.ToLower(list[i].Username) < strings.ToLower(list[j].Username) })
+	b, _ := json.MarshalIndent(struct {
+		Owner *Account   `json:"owner"`
+		Users []*Account `json:"users,omitempty"`
+	}{owner, list}, "", "  ")
+	return writeFile(path, b)
 }
 
 func tokenHash(token string) string {
@@ -614,11 +973,6 @@ func (s *Store) saveSessionsLocked() error {
 	}
 	b, _ := json.MarshalIndent(list, "", "  ")
 	return writeFile(s.path("sessions.json"), b)
-}
-
-func (s *Store) saveAccountLocked(a *Account) error {
-	b, _ := json.MarshalIndent(map[string]*Account{"owner": a}, "", "  ")
-	return writeFile(s.path("accounts.json"), b)
 }
 
 func writeFile(path string, b []byte) error {

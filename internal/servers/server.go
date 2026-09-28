@@ -586,7 +586,7 @@ func (s *Server) Command(line string) error {
 
 // ---- install and update ----
 
-func (s *Server) installAndStart() {
+func (s *Server) installAndStart(extra []string) {
 	defer s.m.work.Done()
 	err := s.install(false)
 	s.mu.Lock()
@@ -599,12 +599,19 @@ func (s *Server) installAndStart() {
 	}
 	s.state = StateStopped
 	s.mu.Unlock()
+	ops := extra
 	if owner := s.m.Settings().OwnerGamertag; owner != "" {
-		if err := s.AllowlistAdd(owner, ""); err != nil {
-			s.say("Couldn't add " + owner + " to the allowlist: " + err.Error())
+		ops = append([]string{owner}, extra...)
+	}
+	for i, name := range ops {
+		if i > 0 && strings.EqualFold(name, ops[0]) {
+			continue
 		}
-		if _, err := s.OpAdd(owner); err != nil {
-			s.say("Couldn't make " + owner + " an operator: " + err.Error())
+		if err := s.AllowlistAdd(name, ""); err != nil {
+			s.say("Couldn't add " + name + " to the allowlist: " + err.Error())
+		}
+		if _, err := s.OpAdd(name); err != nil {
+			s.say("Couldn't make " + name + " an operator: " + err.Error())
 		}
 	}
 	if err := s.Start(); err != nil {

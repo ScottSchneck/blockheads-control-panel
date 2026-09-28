@@ -22,9 +22,9 @@ func (s *Server) authRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/auth/prefs", s.getPrefs)
 	mux.HandleFunc("PUT /api/auth/prefs", s.putPrefs)
 	mux.HandleFunc("GET /api/updates", s.updates)
-	mux.HandleFunc("GET /api/setup-guide", s.setupGuide)
-	mux.HandleFunc("POST /api/setup-guide/gamertag", s.setupGamertag)
-	mux.HandleFunc("POST /api/setup-guide/done", s.setupDone)
+	mux.HandleFunc("GET /api/setup-guide", ownerOnly(s.setupGuide))
+	mux.HandleFunc("POST /api/setup-guide/gamertag", ownerOnly(s.setupGamertag))
+	mux.HandleFunc("POST /api/setup-guide/done", ownerOnly(s.setupDone))
 }
 
 func clientIP(r *http.Request) string {
@@ -65,15 +65,17 @@ func authError(w http.ResponseWriter, err error) {
 
 func (s *Server) authState(w http.ResponseWriter, r *http.Request) {
 	resp := map[string]any{"version": s.opts.Version}
-	if user := s.user(r); user != "" {
+	if p := s.who(r); p != nil {
 		// Using the panel keeps you signed in: renew the cookie too.
 		if c, err := r.Cookie(s.cookieName()); err == nil {
 			s.setSession(w, c.Value)
 		}
 		resp["mode"] = "signedIn"
-		resp["username"] = user
+		resp["username"] = p.Name
+		resp["owner"] = p.Owner
+		resp["canAdd"] = p.Owner || p.CanAdd
 		resp["setupDone"] = s.mgr.Settings().SetupDone
-		resp["prefs"] = s.auth.Prefs()
+		resp["prefs"] = s.auth.Prefs(p.Name)
 		writeJSON(w, http.StatusOK, resp)
 		return
 	}
@@ -114,19 +116,20 @@ func (s *Server) authLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	token, err := s.auth.Login(r.Context(), clientIP(r), req.Username, req.Password)
 	if err != nil {
-		// Only name the owner: a password typed into the username box
+		// Only name real accounts: a password typed into the username box
 		// shouldn't end up in the log.
-		who := "someone else"
-		if s.auth.IsOwnerName(req.Username) {
-			who = s.auth.Username()
+		who, ok := s.auth.IsAccountName(req.Username)
+		if !ok {
+			who = "someone else"
 		}
 		s.log.Warn("sign-in failed", "username", who, "from", clientIP(r), "error", err)
 		authError(w, err)
 		return
 	}
-	s.log.Info("signed in", "username", s.auth.Username(), "from", clientIP(r))
+	name := s.auth.Check(token)
+	s.log.Info("signed in", "username", name, "from", clientIP(r))
 	s.setSession(w, token)
-	writeJSON(w, http.StatusOK, map[string]string{"username": s.auth.Username()})
+	writeJSON(w, http.StatusOK, map[string]string{"username": name})
 }
 
 func (s *Server) authReset(w http.ResponseWriter, r *http.Request) {
@@ -157,9 +160,11 @@ func (s *Server) authLogout(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) authLogoutAll(w http.ResponseWriter, r *http.Request) {
-	s.auth.LogoutAll()
+	if c, err := r.Cookie(s.cookieName()); err == nil {
+		s.auth.LogoutAll(c.Value)
+	}
 	s.clearSession(w)
-	s.log.Info("signed out everywhere", "from", clientIP(r))
+	s.log.Info("signed out everywhere", "username", me(r).Name, "from", clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
@@ -179,7 +184,7 @@ func (s *Server) authPassword(w http.ResponseWriter, r *http.Request) {
 		authError(w, err)
 		return
 	}
-	s.log.Info("owner password changed; other browsers were signed out", "from", clientIP(r))
+	s.log.Info("password changed; other browsers were signed out", "username", me(r).Name, "from", clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
@@ -305,7 +310,7 @@ var prefValues = map[string]map[string]bool{
 }
 
 func (s *Server) getPrefs(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, s.auth.Prefs())
+	writeJSON(w, http.StatusOK, s.auth.Prefs(me(r).Name))
 }
 
 func (s *Server) putPrefs(w http.ResponseWriter, r *http.Request) {
@@ -319,11 +324,12 @@ func (s *Server) putPrefs(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if err := s.auth.SetPrefs(req); err != nil {
+	name := me(r).Name
+	if err := s.auth.SetPrefs(name, req); err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, s.auth.Prefs())
+	writeJSON(w, http.StatusOK, s.auth.Prefs(name))
 }
 
 // updates says which Bedrock release is current, for "update ready" notes.

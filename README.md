@@ -45,6 +45,9 @@ Switch players can join without extra apps.
 - **Owner account** with a sign-in page, a setup guide the first time, and
   a password reset from the command line. Passwords are hashed with Argon2id;
   repeated wrong passwords lock that address out for 15 minutes.
+- **Accounts for the kids.** On the **People** page the owner gives each kid a
+  sign-in and chooses, server by server, what they can do. See
+  [People and roles](#people-and-roles).
 - **The web panel** at `https://<container IP>:8443`, for desktop and phone:
   a dashboard of every server (status, players, version, last backup, a note
   when a new Bedrock version is out), and for each server an Overview,
@@ -73,9 +76,7 @@ Switch players can join without extra apps.
 
 ## Coming next
 
-Phase 2 adds more user accounts with roles (so a kid can run their own
-server) and friends joining from outside; Java, Hytale and more follow
-later.
+Friends joining from outside the house; then Java, Hytale and more.
 
 ## Install
 
@@ -131,6 +132,31 @@ then remove and re-run the container. To build it yourself instead, run
 list by themselves under **Friends → LAN Games** (a PS5 does), with no DNS
 change at all. Otherwise, set the console's DNS to the container's IP,
 **restart the console**, open Minecraft, and join any featured server.
+
+### People and roles
+
+The owner can do everything. Everyone else gets an account from the owner
+(**People** in the menu, or **Account → Open People** on a phone): a username
+and a password you choose and tell them. They can change it on their Account
+page; if they forget it, give them a new one from People.
+
+Each person only sees the servers you give them, with one of three roles:
+
+| Role | What they can do |
+| --- | --- |
+| **Can turn it on** | See the server and start it. |
+| **Runs it** | Also stop and restart it, let friends in (allowlist, operators, kick), change its settings, use the console, and make a backup. |
+| **Takes care of it** | Also update it, restore a backup, set the backup schedule, and download or delete backups. |
+
+Tick **Can add new servers** to let someone add their own; they take care of
+the servers they add. Only the owner can delete a server, import, manage
+accounts or change panel-wide settings, so nobody can wipe out a sibling's
+world. New accounts start in the Treehouse look.
+
+The **activity log** records who did what (turned a server off, restored a
+backup, changed settings, let someone in). The owner sees all of it on the
+People page; everyone sees what happened to their own servers on the
+server's Overview.
 
 ### Moving from Crafty
 

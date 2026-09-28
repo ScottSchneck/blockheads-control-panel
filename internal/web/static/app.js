@@ -2,7 +2,11 @@
 // The panel page ("Control Room" style). One page, with views chosen by the
 // address after # (see route): the servers dashboard, one server with its
 // Overview, Players, Settings, Backups and Console tabs, and the Backups,
-// Joining, Import, Add server, Setup guide and Account pages.
+// Help, Import, Add server, Setup guide, People and Account pages.
+//
+// What shows depends on who's signed in: the owner sees everything; anyone
+// else sees only the servers the owner gave them, with the buttons their
+// role on each allows (see access).
 
 const $ = (id) => document.getElementById(id);
 const labels = {
@@ -46,7 +50,12 @@ function el(tag, attrs = {}, ...children) {
 
 let serverList = [];       // last /api/servers answer
 let latestVersion = "";    // newest Bedrock release, when known
-let joinInfo = null;       // console list name and IP, from the setup guide info
+let joinInfo = null;       // console list name and IP, from /api/info
+let me = { owner: false, canAdd: false, name: "" }; // who's signed in
+
+// Access levels on one server, as /api/servers reports them.
+const SEE = 1, RUN = 2, CARE = 3;
+const access = (s) => (s && s.access) || 0;
 
 function action(id, what) {
   return async (ev) => {
@@ -126,9 +135,11 @@ const serverHref = (id, tab) => `#/server/${encodeURIComponent(id)}/${tab || "ov
 
 function startStopButton(s) {
   const busy = busyStates.includes(s.state);
-  return isLive(s)
-    ? el("button", { class: "danger", onclick: action(s.id, "stop"), disabled: s.state === "stopping" }, word("stop"))
-    : el("button", { class: "go", onclick: action(s.id, "start"), disabled: busy }, word("start"));
+  if (isLive(s)) {
+    // Someone who may only turn it on can't turn it off.
+    return access(s) >= RUN ? el("button", { class: "danger", onclick: action(s.id, "stop"), disabled: s.state === "stopping" }, word("stop")) : null;
+  }
+  return el("button", { class: "go", onclick: action(s.id, "start"), disabled: busy }, word("start"));
 }
 
 function renderServerRow(s) {
@@ -136,26 +147,27 @@ function renderServerRow(s) {
   const extra = [];
   if (s.players.length) extra.push(`${s.players.length} playing`);
   if (s.waiting) extra.push(`${s.waiting} waiting to be let in`);
-  if (upd) extra.push("update ready");
+  if (upd && access(s) >= CARE) extra.push("update ready");
+  const open = access(s) >= RUN;
   return el("div", { class: "srow", style: bandStyle(s.id) },
     el("div", {},
-      el("a", { class: "name", href: serverHref(s.id) }, s.name),
+      open ? el("a", { class: "name", href: serverHref(s.id) }, s.name) : el("span", { class: "name" }, s.name),
       el("div", { class: "sub" }, `port ${s.port}`),
       s.message ? el("div", { class: "note warn" }, s.message) : null),
     el("div", {}, stateEl(s)),
     el("div", { class: "cell-muted" }, playingText(s), s.waiting ? el("div", { class: "note warn" }, `${s.waiting} waiting to be let in`) : null),
     el("div", {},
       el("div", { class: "mono" }, s.version || word("noVersion")),
-      upd ? el("div", { class: "note upd" + (upd.far ? " far" : "") }, upd.far ? "Well behind: update" : "Update ready") : null),
+      upd && access(s) >= CARE ? el("div", { class: "note upd" + (upd.far ? " far" : "") }, upd.far ? "Well behind: update" : "Update ready") : null),
     el("div", { class: "cell-muted" }, whenShort(s.lastBackup)),
     el("div", { class: "acts" },
       startStopButton(s),
-      el("a", { class: "button", href: serverHref(s.id) }, "Open")),
+      open ? el("a", { class: "button", href: serverHref(s.id) }, "Open") : null),
     extra.length ? el("div", { class: "mobile-extra" }, extra.join(" · ")) : null);
 }
 
 function renderDashboard(list, force) {
-  const key = JSON.stringify([list, latestVersion, prefs.style]);
+  const key = JSON.stringify([list, latestVersion, prefs.style, me]);
   if (key === dashKey && !force) return; // unchanged: keep keyboard focus
   dashKey = key;
   $("servers-title").textContent = prefs.style === "treehouse" ? greeting() : "Servers";
@@ -166,6 +178,13 @@ function renderDashboard(list, force) {
   $("servers").replaceChildren(...(list.length ? [head, ...list.map(renderServerRow)] : []));
   $("servers").hidden = list.length === 0;
   $("empty").hidden = list.length > 0;
+  if (!list.length) {
+    $("empty").replaceChildren(...(me.owner
+      ? ["No servers yet. ", el("a", { href: "#/add" }, "Add a server"), " to download Bedrock and start one, or ", el("a", { href: "#/import" }, "import"), " your servers from Crafty."]
+      : me.canAdd
+        ? ["No servers yet. ", el("a", { href: "#/add" }, "Add a server"), ", or ask ", ownerName(), " to give you one."]
+        : ["No servers for you yet. Ask ", ownerName(), " to give you one on the People page."]));
+  }
   const running = list.filter((s) => s.state === "running").length;
   const playing = list.reduce((n, s) => n + s.players.length, 0);
   $("servers-summary").textContent = list.length
@@ -173,7 +192,7 @@ function renderDashboard(list, force) {
     : "";
 
   // Update note
-  const behind = list.filter((s) => needsUpdate(s) && !busyStates.includes(s.state));
+  const behind = list.filter((s) => access(s) >= CARE && needsUpdate(s) && !busyStates.includes(s.state));
   $("update-banner").hidden = behind.length === 0;
   if (behind.length) {
     $("update-banner-text").replaceChildren(el("b", {}, `Bedrock ${latestVersion} is out. `),
@@ -196,7 +215,7 @@ function renderDashboard(list, force) {
 
 $("update-all").addEventListener("click", async (ev) => {
   const button = ev.currentTarget;
-  const behind = serverList.filter((s) => needsUpdate(s) && !busyStates.includes(s.state));
+  const behind = serverList.filter((s) => access(s) >= CARE && needsUpdate(s) && !busyStates.includes(s.state));
   const playing = behind.reduce((n, s) => n + s.players.length, 0);
   const note = playing ? `\n\n${playing} player(s) will be disconnected.` : "";
   if (!confirm(`Update ${behind.map((s) => s.name).join(", ")} to Bedrock ${latestVersion}? Each is backed up first.${note}`)) return;
@@ -211,7 +230,7 @@ $("update-all").addEventListener("click", async (ev) => {
 // Tried to join, across servers. Only servers with someone waiting are asked.
 let attemptsLoadedAt = 0;
 async function loadDashAttempts(list) {
-  const waiting = list.filter((s) => s.waiting > 0);
+  const waiting = list.filter((s) => s.waiting > 0 && access(s) >= RUN);
   if (!waiting.length) { $("dash-attempts").hidden = true; return; }
   if (Date.now() - attemptsLoadedAt < 5000) return;
   attemptsLoadedAt = Date.now();
@@ -234,6 +253,9 @@ async function loadDashAttempts(list) {
 }
 
 function renderBackupsOverview(list) {
+  list = list.filter((s) => access(s) >= RUN);
+  $("backups-none").hidden = list.length > 0;
+  $("backups-overview").hidden = list.length === 0;
   const head = el("div", { class: "srow head" },
     el("div", {}, "Server"), el("div", {}, "Status"), el("div", {}, ""), el("div", {}, ""), el("div", {}, "Last backup"), el("div", {}));
   $("backups-overview").replaceChildren(head, ...list.map((s) => el("div", { class: "srow" },
@@ -249,7 +271,7 @@ let ovPlayersKey = ""; // what the Overview player list last showed
 let dashKey = "";      // what the dashboard last showed
 
 function renderDetailHead(s) {
-  const key = JSON.stringify([s.id, s.name, s.state, s.version, s.port, s.message, latestVersion, s.players.length, prefs.style]);
+  const key = JSON.stringify([s.id, s.name, s.state, s.version, s.port, s.message, latestVersion, s.players.length, prefs.style, s.access]);
   if (key === detailKey) return; // unchanged: keep keyboard focus where it is
   detailKey = key;
   $("detail-name").textContent = s.name;
@@ -263,10 +285,11 @@ function renderDetailHead(s) {
   const copying = s.state === "importing";
   const updBtn = el("button", { class: upd ? "info" : "", onclick: confirmUpdate(s), disabled: copying || s.state === "installing" || s.state === "updating" || s.state === "restoring" },
     "Update", upd ? el("span", { class: "long" }, ` to ${latestVersion}`) : null);
-  $("detail-actions").replaceChildren(startStopButton(s),
+  $("detail-actions").replaceChildren(...[startStopButton(s),
     el("button", { onclick: action(s.id, "restart"), disabled: !isLive(s) || busy }, "Restart"),
-    updBtn);
+    access(s) >= CARE ? updBtn : null].filter(Boolean));
   for (const t of ["players", "settings", "backups"]) $("tab-" + t).hidden = copying;
+  $("ov-backups-link").textContent = access(s) >= CARE ? "Restore or download" : "See backups";
 }
 
 function confirmUpdate(s) {
@@ -288,7 +311,9 @@ async function refresh() {
     if (view === "backups") renderBackupsOverview(list);
     if (view === "server") {
       const s = list.find((x) => x.id === selected);
-      if (s) {
+      if (s && access(s) < RUN) {
+        location.hash = "#/"; // the owner changed what this account may do
+      } else if (s) {
         renderDetailHead(s);
         if (tab === "overview") renderOverviewStatus(s);
       } else {
@@ -318,7 +343,7 @@ async function checkUpdates(tries = 6) {
 let view = "servers";
 
 // route shows the page the address names: #/, #/backups, #/help,
-// #/import, #/add, #/guide, #/account, #/server/<id>/<tab>. (#/joining, the
+// #/import, #/add, #/guide, #/people, #/account, #/server/<id>/<tab>. (#/joining, the
 // old address of the joining help, opens Help.)
 let acceptedHash = "#/"; // the address of the page on screen
 
@@ -338,11 +363,17 @@ function route() {
   }
   let next = parts[0] || "servers";
   if (next === "joining") next = "help";
-  if (!["servers", "backups", "help", "import", "add", "guide", "account", "server"].includes(next)) next = "servers";
+  if (!["servers", "backups", "help", "import", "add", "guide", "people", "account", "server"].includes(next)) next = "servers";
+  if ((["import", "guide", "people"].includes(next) && !me.owner) || (next === "add" && !me.canAdd)) {
+    location.hash = "#/"; // not for this account
+    return;
+  }
   if (next === "server") {
     const id = parts[1];
     const t = ["overview", "players", "settings", "backups", "console"].includes(parts[2]) ? parts[2] : "overview";
     if (!id) { location.hash = "#/"; return; }
+    const known = serverList.find((x) => x.id === id);
+    if (known && access(known) < RUN) { location.hash = "#/"; return; }
     if (id !== selected || view !== "server") {
       if (settingsDirty() && !confirm("Leave without saving your settings changes?")) { stay(); return; }
       closeConsole();
@@ -378,7 +409,12 @@ function route() {
   if (next === "servers") renderDashboard(serverList, true);
   if (next === "backups") renderBackupsOverview(serverList);
   if (next === "import") loadImports();
-  if (next === "add") { $("add-owner").value = settings.ownerGamertag || ""; $("add-name").focus(); }
+  if (next === "add") {
+    $("add-owner").value = me.owner ? settings.ownerGamertag || "" : "";
+    $("add-kid-note").hidden = me.owner;
+    $("add-name").focus();
+  }
+  if (next === "people") loadPeople();
   if (next === "guide") openGuide(1);
   if (next === "help") fillJoinInfo();
   refresh();
@@ -388,7 +424,7 @@ function setView(v) {
   view = v;
   for (const sec of document.querySelectorAll(".view")) sec.hidden = sec.id !== "view-" + v;
   // Pages without their own menu entry light up the one they're reached from.
-  const navKey = { server: "servers", add: "servers", import: "servers", guide: "help" }[v] || v;
+  const navKey = { server: "servers", add: "servers", import: "servers", guide: "help", people: me.owner ? "people" : "account" }[v] || v;
   for (const a of document.querySelectorAll("[data-nav]")) {
     if (a.dataset.nav === navKey) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
   }
@@ -462,12 +498,14 @@ async function loadOverview() {
       $("ov-console").replaceChildren(...ovLines.map((l) => el("span", { class: lineClass(l) }, l + "\n")));
     };
   }
-  const [settingsV, players, backups] = await Promise.all([
+  const [settingsV, players, backups, acts] = await Promise.all([
     api(`/api/servers/${encodeURIComponent(id)}/settings`).catch(() => null),
     api(`/api/servers/${encodeURIComponent(id)}/players`).catch(() => null),
     api(`/api/servers/${encodeURIComponent(id)}/backups`).catch(() => null),
+    api(`/api/activity?server=${encodeURIComponent(id)}&limit=6`).catch(() => null),
   ]);
   if (id !== selected || tab !== "overview") return;
+  if (acts) $("ov-activity").replaceChildren(...(acts.length ? acts.map((e) => activityRow(e, false)) : [emptyRow("Nothing yet.")]));
   // World
   const fields = {};
   for (const g of (settingsV && settingsV.groups) || []) for (const f of g.fields) fields[f.key] = f;
@@ -543,7 +581,7 @@ async function playersCall(fn) {
 // clearServerPanes empties what the Players and Overview tabs show, so
 // nothing from one server is left on another's page.
 function clearServerPanes() {
-  for (const id of ["online", "allowlist", "operators", "attempts", "ov-online", "ov-world"]) $(id).replaceChildren();
+  for (const id of ["online", "allowlist", "operators", "attempts", "ov-online", "ov-world", "ov-activity"]) $(id).replaceChildren();
   $("attempts-box").hidden = true;
   showPlayersError(null);
   for (const id of ["ov-join", "ov-backups"]) $(id).textContent = "…";
@@ -893,7 +931,7 @@ $("add-form").addEventListener("submit", async (ev) => {
       ownerGamertag: $("add-owner").value.trim(),
       acceptEula: $("add-eula").checked,
     });
-    settings.ownerGamertag = $("add-owner").value.trim();
+    if (me.owner) settings.ownerGamertag = $("add-owner").value.trim();
     $("add-form").reset();
     await refresh();
     location.hash = serverHref(s.id, "console");
@@ -966,6 +1004,8 @@ function renderBackups(v, id) {
     $("plan-save").disabled = true;
   }
   backupsFor = id;
+  const care = access(serverList.find((x) => x.id === id)) >= CARE;
+  $("plan-form").hidden = !care;
   for (const x of ["plan-every", "plan-at"]) $(x).disabled = false;
   updatePlanForm();
   const utc = /^(UTC|GMT|Etc\/UTC)$/.test(v.timeZone);
@@ -979,11 +1019,12 @@ function renderBackups(v, id) {
   const list = v.backups || [];
   $("backups-summary").textContent = v.running
     ? "Working on it…"
-    : (list.length ? `${list.length} backup${list.length === 1 ? "" : "s"}, ${size(v.total)} in all. Restoring backs up the current world first, so you can undo it.` : "");
+    : (list.length ? `${list.length} backup${list.length === 1 ? "" : "s"}, ${size(v.total)} in all. ` + (care ? "Restoring backs up the current world first, so you can undo it." : `To restore one, ask ${ownerWord()}.`) : "");
   const enc = encodeURIComponent;
   $("backups").replaceChildren(...(list.length ? list.map((b) => {
     const when = new Date(b.time).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
     const detail = `${kindLabels[b.kind] || b.kind} · ${size(b.size)}${b.full ? " · includes the server version from before the update" : ""}`;
+    if (!care) return row(when, detail);
     return row(when, detail,
       el("a", { class: "button", href: `${sid()}/backups/${enc(b.name)}`, download: b.name }, "Download"),
       btn("Restore", () => {
@@ -1135,6 +1176,101 @@ function importRow(c) {
 }
 
 
+// ---- activity ----
+
+function activityRow(e, withServer) {
+  const d = new Date(e.time);
+  const when = whenShort(e.time);
+  const where = withServer && e.server ? ` · ${e.server}` : "";
+  return el("li", {}, el("span", { class: "who" }, `${e.user || "The panel"} ${e.text}`,
+    el("small", { title: d.toLocaleString() }, when + where)));
+}
+
+// ---- people (owner only) ----
+
+let people = null; // last /api/users answer
+
+const roleChoices = [["", "No access"], ["start", "Can turn it on"], ["run", "Runs it"], ["care", "Takes care of it"]];
+
+function showPeopleError(err) {
+  $("people-error").textContent = err ? err.message : "";
+  $("people-error").hidden = !err;
+}
+
+async function loadPeople() {
+  try {
+    const [v, acts] = await Promise.all([api("/api/users"), api("/api/activity?limit=30")]);
+    if (view !== "people") return;
+    people = v;
+    renderPeople();
+    $("people-activity").replaceChildren(...(acts.length ? acts.map((e) => activityRow(e, true)) : [emptyRow("Nothing yet.")]));
+    showPeopleError(null);
+  } catch (err) { showPeopleError(err); }
+}
+
+// savePerson sends one change to what someone may do: {canAdd} or
+// {grants: {serverID: role}}. Only what's sent changes, so quick changes
+// in a row don't undo each other.
+async function savePerson(u, change) {
+  try {
+    await api(`/api/users/${encodeURIComponent(u.username)}`, { method: "PUT", body: JSON.stringify(change) });
+    showPeopleError(null);
+  } catch (err) { showPeopleError(err); }
+  loadPeople();
+}
+
+function renderPeople() {
+  const v = people;
+  if (!v) return;
+  if (!v.users.length) {
+    $("people-list").replaceChildren(el("p", { class: "card muted" }, "Nobody else has an account yet. Add someone below."));
+    return;
+  }
+  $("people-list").replaceChildren(...v.users.map((u) => {
+    const canAdd = el("input", { type: "checkbox", checked: u.canAdd });
+    canAdd.addEventListener("change", () => savePerson(u, { canAdd: canAdd.checked }));
+    const grants = v.servers.length ? v.servers.map((srv) => {
+      const role = u.grants[srv.id] || "";
+      const sel = el("select", { "aria-label": `${u.username} on ${srv.name}` },
+        ...roleChoices.map(([val, label]) => el("option", { value: val, selected: val === role }, label)));
+      sel.addEventListener("change", () => savePerson(u, { grants: { [srv.id]: sel.value } }));
+      return el("li", { class: role ? "" : "none" }, el("span", {}, srv.name), sel);
+    }) : [el("li", {}, el("span", {}, "No servers yet."))];
+    return el("section", { class: "card person" },
+      el("div", { class: "person-head" },
+        el("span", { class: "avatar" }, u.username.slice(0, 1).toUpperCase()),
+        el("div", { class: "grow" }, el("h2", {}, u.username),
+          el("small", {}, u.lastSeen ? `Last used the panel ${whenShort(u.lastSeen).toLowerCase()}` : "Hasn't signed in yet")),
+        btn("New password", async () => {
+          const pw = prompt(`New password for ${u.username} (at least 8 characters). They'll be signed out everywhere.`);
+          if (!pw) return;
+          try {
+            await post(`/api/users/${encodeURIComponent(u.username)}/password`, { password: pw });
+            showPeopleError(null);
+            alert(`${u.username}'s password is changed. Tell them the new one.`);
+          } catch (err) { showPeopleError(err); }
+          loadPeople();
+        }),
+        btn("Remove", async () => {
+          if (!confirm(`Remove ${u.username}'s account? They're signed out, and their servers stay as they are.`)) return;
+          try { await del(`/api/users/${encodeURIComponent(u.username)}`); showPeopleError(null); } catch (err) { showPeopleError(err); }
+          loadPeople();
+        }, "danger")),
+      el("ul", { class: "grants" }, ...grants),
+      el("label", { class: "check" }, canAdd, el("span", {}, "Can add new servers (they take care of the ones they add)")));
+  }));
+}
+
+$("person-form").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  try {
+    await post("/api/users", { username: $("person-name").value.trim(), password: $("person-pass").value, canAdd: $("person-canadd").checked });
+    $("person-form").reset();
+    formError("person-error", null);
+    loadPeople();
+  } catch (err) { formError("person-error", err); }
+});
+
 // ---- signing in ----
 
 let signedIn = false;
@@ -1192,6 +1328,10 @@ async function start() {
 
 function enterApp(st) {
   signedIn = true;
+  me = { owner: !!st.owner, canAdd: !!st.canAdd, name: st.username };
+  for (const e of document.querySelectorAll("[data-owner-only]")) e.hidden = !me.owner;
+  for (const e of document.querySelectorAll("[data-not-owner]")) e.hidden = me.owner;
+  for (const e of document.querySelectorAll("[data-can-add]")) e.hidden = !me.canAdd;
   $("auth-view").hidden = true;
   $("app-view").hidden = false;
   $("account-name").textContent = st.username;
@@ -1212,7 +1352,7 @@ function enterApp(st) {
     setInterval(() => { if (onServer("overview")) loadOverview(); }, 10000),
     setInterval(checkUpdates, 10 * 60 * 1000),
   ];
-  if (!st.setupDone && !location.hash.startsWith("#/guide")) location.hash = "#/guide";
+  if (me.owner && !st.setupDone && !location.hash.startsWith("#/guide")) location.hash = "#/guide";
   else route();
 }
 
@@ -1220,15 +1360,21 @@ function enterApp(st) {
 
 async function loadJoinInfo() {
   try {
-    joinInfo = await api("/api/setup-guide");
+    joinInfo = await api("/api/info");
   } catch (_) { return; }
   fillJoinInfo();
 }
 
+// ownerName is the owner's username, for "ask Scott".
+function ownerWord() { return (joinInfo && joinInfo.owner) || "the owner"; }
+function ownerName() { return el("b", {}, ownerWord()); }
+
 function fillJoinInfo() {
   if (!joinInfo) return;
+  for (const e of document.querySelectorAll(".owner-name")) e.textContent = ownerWord();
+  if (view === "servers") renderDashboard(serverList, true);
   const name = joinInfo.listName || "Server List";
-  const ip = joinInfo.listIP || "the panel's IP";
+  const ip = joinInfo.hostIP || "the panel's IP";
   for (const id of ["side-list-name", "dash-list-name", "join-list-name"]) $(id).textContent = name;
   for (const id of ["side-list-ip", "dash-list-ip", "join-list-ip"]) $(id).textContent = ip;
 }
@@ -1280,6 +1426,8 @@ function signedOut() {
   resetBackups();
   selected = null;
   settings = {};
+  me = { owner: false, canAdd: false, name: "" };
+  people = null;
   guideInfo = null;
   joinInfo = null;
   serverList = [];
@@ -1298,7 +1446,8 @@ function signedOut() {
   $("detail-actions").replaceChildren();
   $("password-msg").hidden = true;
   for (const f of ["password-form", "add-form"]) $(f).reset();
-  for (const id of ["servers", "online", "allowlist", "operators", "attempts", "console-log", "import-list", "import-results", "guide-checklist", "ov-online", "dash-attempts-list", "backups-overview"]) $(id).replaceChildren();
+  for (const id of ["servers", "online", "allowlist", "operators", "attempts", "console-log", "import-list", "import-results", "guide-checklist", "ov-online", "dash-attempts-list", "backups-overview", "people-list", "people-activity", "ov-activity"]) $(id).replaceChildren();
+  $("person-form").reset();
   start();
 }
 

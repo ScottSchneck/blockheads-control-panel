@@ -28,6 +28,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ScottSchneck/blockheads-control-panel/internal/activity"
 	"github.com/ScottSchneck/blockheads-control-panel/internal/auth"
 	"github.com/ScottSchneck/blockheads-control-panel/internal/servers"
 )
@@ -48,10 +49,11 @@ type Options struct {
 
 // Server is the panel's web server.
 type Server struct {
-	opts Options
-	mgr  *servers.Manager
-	auth *auth.Store
-	log  *slog.Logger
+	opts     Options
+	mgr      *servers.Manager
+	auth     *auth.Store
+	activity *activity.Log
+	log      *slog.Logger
 }
 
 // New prepares the web server and the owner account store.
@@ -73,6 +75,7 @@ func New(opts Options, mgr *servers.Manager) (*Server, error) {
 		return nil, err
 	}
 	s.auth = store
+	s.activity = activity.Open(filepath.Join(opts.DataDir, "activity.jsonl"))
 	code, usesOld, err := store.EnsureSetupCode()
 	if err != nil {
 		return nil, fmt.Errorf("couldn't make a setup code: %w", err)
@@ -153,6 +156,7 @@ func (s *Server) routes() http.Handler {
 	s.authRoutes(mux)
 	s.importRoutes(mux)
 	s.backupRoutes(mux)
+	s.peopleRoutes(mux)
 	return s.secure(mux)
 }
 
@@ -186,22 +190,82 @@ func (s *Server) secure(next http.Handler) http.Handler {
 			return
 		}
 		if strings.HasPrefix(r.URL.Path, "/api/") && !publicAPI[r.URL.Path] {
-			if s.user(r) == "" {
+			p := s.who(r)
+			if p == nil {
 				writeError(w, http.StatusUnauthorized, errors.New("sign in first"))
 				return
 			}
+			r = r.WithContext(context.WithValue(r.Context(), whoKey{}, p))
 		}
 		next.ServeHTTP(w, r)
 	})
 }
 
-// user returns who's signed in on this request ("" for nobody).
-func (s *Server) user(r *http.Request) string {
+type whoKey struct{}
+
+// who returns who's signed in on this request (nil for nobody).
+func (s *Server) who(r *http.Request) *auth.Principal {
 	c, err := r.Cookie(s.cookieName())
 	if err != nil {
-		return ""
+		return nil
 	}
-	return s.auth.Check(c.Value)
+	return s.auth.Who(c.Value)
+}
+
+// user returns the name of who's signed in on this request ("" for nobody).
+func (s *Server) user(r *http.Request) string {
+	if p := s.who(r); p != nil {
+		return p.Name
+	}
+	return ""
+}
+
+// me returns who made an API request (set by secure).
+func me(r *http.Request) *auth.Principal {
+	p, _ := r.Context().Value(whoKey{}).(*auth.Principal)
+	return p
+}
+
+// Levels a request needs on a server (see auth.RoleLevel).
+const (
+	levelSee   = 1 // see it and turn it on
+	levelRun   = 2 // stop it, players, settings, console, back up
+	levelCare  = 3 // update, restore, backup schedule, download and delete backups
+	levelOwner = auth.OwnerLevel
+)
+
+var errNotAllowed = errors.New("your account can't do that on this server; ask the owner")
+
+// ownerOnly wraps a handler that only the owner may use.
+func ownerOnly(h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if p := me(r); p == nil || !p.Owner {
+			writeError(w, http.StatusForbidden, errors.New("only the panel's owner can do that"))
+			return
+		}
+		h(w, r)
+	}
+}
+
+// note records something someone did in the activity log.
+func (s *Server) note(r *http.Request, srv *servers.Server, text string) {
+	e := activity.Entry{Text: text}
+	if p := me(r); p != nil {
+		e.User = p.Name
+	}
+	if srv != nil {
+		st := srv.Status()
+		e.ServerID, e.Server = st.ID, st.Name
+	}
+	s.activity.Add(e)
+}
+
+// did notes text if err is nil, and returns err.
+func (s *Server) did(r *http.Request, srv *servers.Server, err error, text string) error {
+	if err == nil {
+		s.note(r, srv, text)
+	}
+	return err
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
@@ -215,15 +279,25 @@ func writeError(w http.ResponseWriter, code int, err error) {
 }
 
 func (s *Server) info(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"version": s.opts.Version, "hostIP": s.opts.HostIP})
+	writeJSON(w, http.StatusOK, map[string]string{"version": s.opts.Version, "hostIP": s.opts.HostIP, "listName": s.opts.ListName, "owner": s.auth.Username()})
+}
+
+// listedServer is a server as the list shows it: its status and what the
+// person asking may do with it.
+type listedServer struct {
+	servers.Status
+	Access int `json:"access"`
 }
 
 func (s *Server) listServers(w http.ResponseWriter, r *http.Request) {
-	list := s.mgr.List()
-	if list == nil {
-		list = []servers.Status{}
+	p := me(r)
+	out := []listedServer{}
+	for _, st := range s.mgr.List() {
+		if lv := p.Level(st.ID); lv > 0 {
+			out = append(out, listedServer{st, lv})
+		}
 	}
-	writeJSON(w, http.StatusOK, list)
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) createServer(w http.ResponseWriter, r *http.Request) {
@@ -237,29 +311,63 @@ func (s *Server) createServer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("bad request"))
 		return
 	}
+	p := me(r)
+	if !p.Owner && !p.CanAdd {
+		writeError(w, http.StatusForbidden, errors.New("your account can't add servers; ask the owner"))
+		return
+	}
 	if !req.AcceptEULA {
 		writeError(w, http.StatusBadRequest, errors.New("accept the Minecraft EULA to download the server"))
 		return
 	}
-	if owner := strings.TrimSpace(req.Owner); owner != "" && owner != s.mgr.Settings().OwnerGamertag {
-		if err := s.mgr.SetOwnerGamertag(req.Owner); err != nil {
-			writeError(w, http.StatusBadRequest, err)
-			return
+	var extra []string
+	if gt := strings.TrimSpace(req.Owner); gt != "" {
+		if p.Owner {
+			// The owner's gamertag is a panel setting: it goes on every new server.
+			if gt != s.mgr.Settings().OwnerGamertag {
+				if err := s.mgr.SetOwnerGamertag(gt); err != nil {
+					writeError(w, http.StatusBadRequest, err)
+					return
+				}
+			}
+		} else {
+			extra = append(extra, gt) // someone else's: just this server
 		}
 	}
-	st, err := s.mgr.Create(req.Name, req.Preview)
+	st, err := s.mgr.Create(req.Name, req.Preview, extra...)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	s.log.Info("server created from the panel", "id", st.ID, "name", st.Name, "from", r.RemoteAddr)
+	if !p.Owner {
+		// Whoever adds a server looks after it (but can't delete it).
+		if err := s.auth.Grant(p.Name, st.ID, auth.RoleCare); err != nil {
+			s.log.Error("could not give the new server to its maker", "user", p.Name, "error", err)
+		}
+	}
+	if srv, ok := s.mgr.Get(st.ID); ok {
+		s.note(r, srv, "added the server")
+	}
+	s.log.Info("server created from the panel", "id", st.ID, "name", st.Name, "by", p.Name, "from", r.RemoteAddr)
 	writeJSON(w, http.StatusAccepted, st)
 }
 
 func (s *Server) serverAction(w http.ResponseWriter, r *http.Request) {
-	srv, ok := s.mgr.Get(r.PathValue("id"))
-	if !ok {
+	id := r.PathValue("id")
+	srv, ok := s.mgr.Get(id)
+	lv := me(r).Level(id)
+	if !ok || lv == 0 {
 		writeError(w, http.StatusNotFound, errors.New("no such server"))
+		return
+	}
+	action := r.PathValue("action")
+	need := map[string]int{"start": levelSee, "stop": levelRun, "restart": levelRun, "command": levelRun, "update": levelCare}[action]
+	if need == 0 {
+		writeError(w, http.StatusNotFound, errors.New("unknown action"))
+		return
+	}
+	if lv < need {
+		writeError(w, http.StatusForbidden, errNotAllowed)
 		return
 	}
 	if srv.Importing() {
@@ -267,15 +375,16 @@ func (s *Server) serverAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var err error
-	switch action := r.PathValue("action"); action {
+	switch action {
 	case "start":
-		err = srv.Start()
+		err = s.did(r, srv, srv.Start(), "started the server")
 	case "stop":
-		err = srv.Stop()
+		err = s.did(r, srv, srv.Stop(), "stopped the server")
 	case "restart":
+		s.note(r, srv, "restarted the server")
 		go func() { _ = srv.Restart() }()
 	case "update":
-		err = srv.Update()
+		err = s.did(r, srv, srv.Update(), "started an update")
 	case "command":
 		var req struct {
 			Command string `json:"command"`
@@ -284,10 +393,7 @@ func (s *Server) serverAction(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, errors.New("bad request"))
 			return
 		}
-		err = srv.Command(req.Command)
-	default:
-		writeError(w, http.StatusNotFound, errors.New("unknown action"))
-		return
+		err = s.did(r, srv, srv.Command(req.Command), "ran the command: "+strings.TrimSpace(req.Command))
 	}
 	if err != nil {
 		writeError(w, http.StatusConflict, err)
@@ -299,9 +405,15 @@ func (s *Server) serverAction(w http.ResponseWriter, r *http.Request) {
 // console streams a server's console as server-sent events: everything so
 // far, then new lines as they happen.
 func (s *Server) console(w http.ResponseWriter, r *http.Request) {
-	srv, ok := s.mgr.Get(r.PathValue("id"))
-	if !ok {
+	id := r.PathValue("id")
+	srv, ok := s.mgr.Get(id)
+	lv := me(r).Level(id)
+	if !ok || lv == 0 {
 		writeError(w, http.StatusNotFound, errors.New("no such server"))
+		return
+	}
+	if lv < levelRun {
+		writeError(w, http.StatusForbidden, errNotAllowed)
 		return
 	}
 	flusher, ok := w.(http.Flusher)
@@ -330,8 +442,8 @@ func (s *Server) console(w http.ResponseWriter, r *http.Request) {
 			send(l)
 			flusher.Flush()
 		case <-keepAlive.C:
-			if s.user(r) == "" {
-				return // signed out meanwhile
+			if p := s.who(r); p == nil || p.Level(id) < levelRun {
+				return // signed out, or no longer allowed
 			}
 			fmt.Fprint(w, ": keep-alive\n\n")
 			flusher.Flush()

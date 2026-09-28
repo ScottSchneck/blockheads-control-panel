@@ -345,6 +345,13 @@ func (s *Server) SaveRawProperties(text string) error {
 	if dups := p.duplicates(); len(dups) > 0 {
 		return fmt.Errorf("these settings appear more than once, so it isn't clear which value counts: %s", strings.Join(dups, ", "))
 	}
+	// The world must be a folder inside this server's worlds/, never
+	// somewhere else (such as another server's world).
+	if v, ok := p.get("level-name"); ok {
+		if err := worldFolderRule(v); err != nil {
+			return fmt.Errorf("level-name: %w", err)
+		}
+	}
 	s.filesMu.Lock()
 	s.mu.Lock()
 	err := p.write(s.propertiesPath())

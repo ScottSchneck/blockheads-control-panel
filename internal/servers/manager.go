@@ -292,10 +292,21 @@ var errNameInvalid = errors.New("give the server a name of 1 to 40 characters")
 
 // Create sets up a new Bedrock server: it downloads the current version and
 // starts it. It returns straight away; follow progress in the console.
-func (m *Manager) Create(name string, preview bool) (Status, error) {
+//
+// The owner's gamertag (a panel setting) and any gamertags passed in extra
+// are put on the new server's allowlist and made operators.
+func (m *Manager) Create(name string, preview bool, extra ...string) (Status, error) {
 	name = strings.TrimSpace(name)
 	if name == "" || len([]rune(name)) > 40 || strings.ContainsAny(name, "\r\n\t") {
 		return Status{}, errNameInvalid
+	}
+	var ops []string
+	for _, gt := range extra {
+		gt, err := cleanGamertag(gt)
+		if err != nil {
+			return Status{}, err
+		}
+		ops = append(ops, gt)
 	}
 	m.mu.Lock()
 	for _, s := range m.servers {
@@ -332,7 +343,7 @@ func (m *Manager) Create(name string, preview bool) (Status, error) {
 		return Status{}, err
 	}
 	m.log.Info("creating a server", "id", id, "name", name, "port", port)
-	go s.installAndStart()
+	go s.installAndStart(ops)
 	return s.Status(), nil
 }
 

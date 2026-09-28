@@ -2,16 +2,18 @@ package web
 
 import (
 	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/ScottSchneck/blockheads-control-panel/internal/servers"
 )
 
 func (s *Server) settingsRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /api/servers/{id}/settings", s.withServer(s.getServerSettings))
-	mux.HandleFunc("POST /api/servers/{id}/settings", s.withServer(s.saveServerSettings))
-	mux.HandleFunc("GET /api/servers/{id}/properties", s.withServer(s.getProperties))
-	mux.HandleFunc("PUT /api/servers/{id}/properties", s.withServer(s.putProperties))
-	mux.HandleFunc("POST /api/servers/{id}/rename", s.withServer(s.renameServer))
+	mux.HandleFunc("GET /api/servers/{id}/settings", s.withServer(levelRun, s.getServerSettings))
+	mux.HandleFunc("POST /api/servers/{id}/settings", s.withServer(levelRun, s.saveServerSettings))
+	mux.HandleFunc("GET /api/servers/{id}/properties", s.withServer(levelRun, s.getProperties))
+	mux.HandleFunc("PUT /api/servers/{id}/properties", s.withServer(levelRun, s.putProperties))
+	mux.HandleFunc("POST /api/servers/{id}/rename", s.withServer(levelRun, s.renameServer))
 }
 
 func (s *Server) getServerSettings(w http.ResponseWriter, r *http.Request, srv *servers.Server) {
@@ -34,6 +36,13 @@ func (s *Server) saveServerSettings(w http.ResponseWriter, r *http.Request, srv 
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
+	}
+	if len(changes) > 0 {
+		var what []string
+		for _, c := range changes {
+			what = append(what, c.Label)
+		}
+		s.note(r, srv, "changed settings: "+strings.Join(what, ", "))
 	}
 	v, err := srv.Settings()
 	if err != nil {
@@ -63,7 +72,7 @@ func (s *Server) putProperties(w http.ResponseWriter, r *http.Request, srv *serv
 	if !readBodyLimit(w, r, &req, 1<<20) {
 		return
 	}
-	if err := srv.SaveRawProperties(req.Text); err != nil {
+	if err := s.did(r, srv, srv.SaveRawProperties(req.Text), "edited server.properties"); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
@@ -77,7 +86,8 @@ func (s *Server) renameServer(w http.ResponseWriter, r *http.Request, srv *serve
 	if !readBody(w, r, &req) {
 		return
 	}
-	if err := srv.Rename(req.Name); err != nil {
+	old := srv.Status().Name
+	if err := s.did(r, srv, srv.Rename(req.Name), "renamed the server from "+strconv.Quote(old)); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}

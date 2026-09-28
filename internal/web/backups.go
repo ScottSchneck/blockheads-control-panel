@@ -8,12 +8,12 @@ import (
 )
 
 func (s *Server) backupRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /api/servers/{id}/backups", s.withServer(s.listBackups))
-	mux.HandleFunc("POST /api/servers/{id}/backups", s.withServer(s.makeBackup))
-	mux.HandleFunc("PUT /api/servers/{id}/backups/plan", s.withServer(s.setBackupPlan))
-	mux.HandleFunc("GET /api/servers/{id}/backups/{name}", s.withServer(s.downloadBackup))
-	mux.HandleFunc("DELETE /api/servers/{id}/backups/{name}", s.withServer(s.deleteBackup))
-	mux.HandleFunc("POST /api/servers/{id}/backups/{name}/restore", s.withServer(s.restoreBackup))
+	mux.HandleFunc("GET /api/servers/{id}/backups", s.withServer(levelRun, s.listBackups))
+	mux.HandleFunc("POST /api/servers/{id}/backups", s.withServer(levelRun, s.makeBackup))
+	mux.HandleFunc("PUT /api/servers/{id}/backups/plan", s.withServer(levelCare, s.setBackupPlan))
+	mux.HandleFunc("GET /api/servers/{id}/backups/{name}", s.withServer(levelCare, s.downloadBackup))
+	mux.HandleFunc("DELETE /api/servers/{id}/backups/{name}", s.withServer(levelCare, s.deleteBackup))
+	mux.HandleFunc("POST /api/servers/{id}/backups/{name}/restore", s.withServer(levelCare, s.restoreBackup))
 }
 
 func (s *Server) listBackups(w http.ResponseWriter, r *http.Request, srv *servers.Server) {
@@ -21,7 +21,7 @@ func (s *Server) listBackups(w http.ResponseWriter, r *http.Request, srv *server
 }
 
 func (s *Server) makeBackup(w http.ResponseWriter, r *http.Request, srv *servers.Server) {
-	if err := srv.StartBackup(); err != nil {
+	if err := s.did(r, srv, srv.StartBackup(), "made a backup"); err != nil {
 		writeError(w, http.StatusConflict, err)
 		return
 	}
@@ -33,7 +33,7 @@ func (s *Server) setBackupPlan(w http.ResponseWriter, r *http.Request, srv *serv
 	if !readBody(w, r, &p) {
 		return
 	}
-	if err := srv.SetPlan(p); err != nil {
+	if err := s.did(r, srv, srv.SetPlan(p), "changed the backup schedule"); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
@@ -64,7 +64,7 @@ func (s *Server) downloadBackup(w http.ResponseWriter, r *http.Request, srv *ser
 }
 
 func (s *Server) deleteBackup(w http.ResponseWriter, r *http.Request, srv *servers.Server) {
-	if err := srv.DeleteBackup(r.PathValue("name")); err != nil {
+	if err := s.did(r, srv, srv.DeleteBackup(r.PathValue("name")), "deleted the backup "+r.PathValue("name")); err != nil {
 		writeError(w, http.StatusNotFound, err)
 		return
 	}
@@ -72,7 +72,7 @@ func (s *Server) deleteBackup(w http.ResponseWriter, r *http.Request, srv *serve
 }
 
 func (s *Server) restoreBackup(w http.ResponseWriter, r *http.Request, srv *servers.Server) {
-	if err := srv.Restore(r.PathValue("name")); err != nil {
+	if err := s.did(r, srv, srv.Restore(r.PathValue("name")), "restored the backup "+r.PathValue("name")); err != nil {
 		writeError(w, http.StatusConflict, err)
 		return
 	}
