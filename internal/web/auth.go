@@ -19,6 +19,9 @@ func (s *Server) authRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/auth/logout", s.authLogout)
 	mux.HandleFunc("POST /api/auth/logout-all", s.authLogoutAll)
 	mux.HandleFunc("POST /api/auth/password", s.authPassword)
+	mux.HandleFunc("GET /api/auth/prefs", s.getPrefs)
+	mux.HandleFunc("PUT /api/auth/prefs", s.putPrefs)
+	mux.HandleFunc("GET /api/updates", s.updates)
 	mux.HandleFunc("GET /api/setup-guide", s.setupGuide)
 	mux.HandleFunc("POST /api/setup-guide/gamertag", s.setupGamertag)
 	mux.HandleFunc("POST /api/setup-guide/done", s.setupDone)
@@ -70,6 +73,7 @@ func (s *Server) authState(w http.ResponseWriter, r *http.Request) {
 		resp["mode"] = "signedIn"
 		resp["username"] = user
 		resp["setupDone"] = s.mgr.Settings().SetupDone
+		resp["prefs"] = s.auth.Prefs()
 		writeJSON(w, http.StatusOK, resp)
 		return
 	}
@@ -291,4 +295,43 @@ func (s *Server) setupDone(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"setupDone": req.Done})
+}
+
+// ---- page preferences ----
+
+var prefValues = map[string]map[string]bool{
+	"style": {"control": true, "treehouse": true},
+	"mode":  {"auto": true, "light": true, "dark": true},
+}
+
+func (s *Server) getPrefs(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.auth.Prefs())
+}
+
+func (s *Server) putPrefs(w http.ResponseWriter, r *http.Request) {
+	var req map[string]string
+	if !readBody(w, r, &req) {
+		return
+	}
+	for k, v := range req {
+		if !prefValues[k][v] {
+			writeError(w, http.StatusBadRequest, errors.New("unknown setting "+strconv.Quote(k+"="+v)))
+			return
+		}
+	}
+	if err := s.auth.SetPrefs(req); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.auth.Prefs())
+}
+
+// updates says which Bedrock release is current, for "update ready" notes.
+func (s *Server) updates(w http.ResponseWriter, r *http.Request) {
+	latest, err := s.mgr.LatestRelease()
+	resp := map[string]string{"latest": latest}
+	if err != nil {
+		resp["error"] = err.Error()
+	}
+	writeJSON(w, http.StatusOK, resp)
 }

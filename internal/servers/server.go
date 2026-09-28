@@ -52,6 +52,11 @@ type Status struct {
 	Message   string   `json:"message,omitempty"`
 	Players   []Player `json:"players"`
 	AutoStart bool     `json:"autoStart"`
+	Preview   bool     `json:"preview,omitempty"`
+	// Waiting is how many players tried to join but aren't on the allowlist.
+	Waiting int `json:"waiting"`
+	// LastBackup is when the newest backup was made (only filled in by List).
+	LastBackup *time.Time `json:"lastBackup,omitempty"`
 }
 
 const (
@@ -106,6 +111,7 @@ type Server struct {
 	retryScheduledAt  time.Time // after a failed scheduled backup
 	backupErr         string
 	playedSinceBackup bool
+	lbTime, lbChecked time.Time // cached newest backup time (see lastBackup)
 }
 
 func newServer(m *Manager, meta Meta) *Server {
@@ -144,7 +150,7 @@ func (s *Server) Status() Status {
 	st := Status{
 		ID: s.meta.ID, Name: s.meta.Name, Type: s.meta.Type, Version: s.meta.Version,
 		Port: s.meta.Port, State: s.state, Message: s.message, AutoStart: s.meta.AutoStart,
-		Players: []Player{},
+		Players: []Player{}, Preview: s.meta.Preview, Waiting: len(s.attempts),
 	}
 	for _, p := range s.players {
 		st.Players = append(st.Players, p)
@@ -685,6 +691,7 @@ func (s *Server) update() error {
 		if err != nil {
 			return fmt.Errorf("backup failed, so nothing was changed: %w", err)
 		}
+		s.forgetLastBackup()
 		backupPath = path
 		s.say("Backup saved: " + filepath.Base(path))
 	}

@@ -6,9 +6,9 @@ phone, a tiny DNS server, and a console server list so Xbox, PlayStation and
 Switch players can join without extra apps.
 
 > **Status: early development.** The console server list and built-in DNS
-> are tested on a Nintendo Switch and a PS5. The server manager and a first,
-> bare-bones web page are new (phase 1 is in progress). See the
-> [design](docs/design.md) for the full plan.
+> are tested on a Nintendo Switch and a PS5, and phase 1 (Bedrock at home)
+> runs a family's servers day to day. See the [design](docs/design.md) for the
+> full plan.
 
 ## What works today
 
@@ -45,8 +45,12 @@ Switch players can join without extra apps.
 - **Owner account** with a sign-in page, a setup guide the first time, and
   a password reset from the command line. Passwords are hashed with Argon2id;
   repeated wrong passwords lock that address out for 15 minutes.
-- **A first web page** at `https://<container IP>:8443`, for desktop and phone.
-  It's bare-bones for now; the full design comes next.
+- **The web panel** at `https://<container IP>:8443`, for desktop and phone:
+  a dashboard of every server (status, players, version, last backup, a note
+  when a new Bedrock version is out), and for each server an Overview,
+  Players, Settings, Backups and Console. Light and dark, or following the
+  device; chosen under your name and saved with your account. Fonts are
+  built in, so it works without internet.
 - **Built-in DNS.** It answers the console "featured server" names (The Hive,
   Lifeboat and others) with the panel's address, and forwards every other
   lookup for devices on your network. It never acts as an open resolver for
@@ -65,11 +69,12 @@ Switch players can join without extra apps.
   setting in case consoles stop falling back to RakNet. See
   [the proof-of-concept notes](docs/proof-of-concept.md) for why.
 
-## Coming in phase 1
+## Coming next
 
-The full web design. Phase 2 adds more user accounts with roles (so a kid
-can run their own server) and friends joining from outside; Java, Hytale and
-more follow later.
+A second look for the panel, "Treehouse": big tiles and buttons and plain
+words, for younger players. Phase 2 adds more user accounts with roles (so a
+kid can run their own server) and friends joining from outside; Java, Hytale
+and more follow later.
 
 ## Install
 

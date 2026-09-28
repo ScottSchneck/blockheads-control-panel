@@ -90,6 +90,8 @@ type Account struct {
 	Hash            string    `json:"hash"`
 	Created         time.Time `json:"created"`
 	PasswordChanged time.Time `json:"passwordChanged"`
+	// Prefs are the owner's page preferences, such as the look.
+	Prefs map[string]string `json:"prefs,omitempty"`
 }
 
 type session struct {
@@ -529,6 +531,43 @@ func (s *Store) Username() string {
 		return ""
 	}
 	return s.owner.Username
+}
+
+// Prefs returns the owner's page preferences.
+func (s *Store) Prefs() map[string]string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := map[string]string{}
+	if s.owner != nil {
+		for k, v := range s.owner.Prefs {
+			out[k] = v
+		}
+	}
+	return out
+}
+
+// SetPrefs merges page preferences into the owner's account.
+func (s *Store) SetPrefs(p map[string]string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.owner == nil {
+		return errors.New("no account")
+	}
+	acct := *s.owner
+	acct.Prefs = map[string]string{}
+	for k, v := range s.owner.Prefs {
+		acct.Prefs[k] = v
+	}
+	for k, v := range p {
+		acct.Prefs[k] = v
+	}
+	if err := s.saveAccountLocked(&acct); err != nil {
+		return err
+	}
+	// Same account, same password: keep sign-ins in progress valid by
+	// updating in place rather than swapping the pointer.
+	s.owner.Prefs = acct.Prefs
+	return nil
 }
 
 // IsOwnerName reports whether name is the owner's username (for logging

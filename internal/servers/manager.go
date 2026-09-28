@@ -52,6 +52,7 @@ type Manager struct {
 	people     *people
 	settingsMu sync.Mutex
 	imports    importState
+	latest     versionCache
 }
 
 // Meta is what the panel remembers about a server between restarts.
@@ -251,7 +252,11 @@ func (m *Manager) all() []*Server {
 func (m *Manager) List() []Status {
 	var out []Status
 	for _, s := range m.all() {
-		out = append(out, s.Status())
+		st := s.Status()
+		if t := s.lastBackup(); !t.IsZero() {
+			st.LastBackup = &t
+		}
+		out = append(out, st)
 	}
 	return out
 }

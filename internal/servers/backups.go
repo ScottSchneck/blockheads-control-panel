@@ -208,6 +208,7 @@ func (s *Server) DeleteBackup(name string) error {
 	if err != nil {
 		return err
 	}
+	defer s.forgetLastBackup()
 	return os.Remove(path)
 }
 
@@ -269,6 +270,7 @@ func (s *Server) backUp(kind string, keep int) (path string, err error) {
 	defer func() {
 		s.mu.Lock()
 		s.coldBackup, s.backupActive = false, false
+		s.forgetLastBackupLocked()
 		if err != nil {
 			s.backupErr = "Backup failed: " + err.Error()
 			s.playedSinceBackup = true // try again next time
@@ -820,6 +822,7 @@ func (s *Server) restore(archive *os.File, name string) error {
 	if err != nil {
 		return fmt.Errorf("couldn't back up the current world first, so nothing was changed: %w", err)
 	}
+	s.forgetLastBackup()
 	s.say("Saved the current world as " + filepath.Base(safety) + ".")
 
 	// What to swap: everything in a full backup, otherwise the world and

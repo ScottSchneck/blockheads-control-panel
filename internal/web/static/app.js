@@ -1,6 +1,8 @@
 "use strict";
-// Panel page: server list, add, start/stop/update, and per server a Players
-// tab (online, allowlist, operators, tried to join) and a live Console tab.
+// The panel page ("Control Room" style). One page, with views chosen by the
+// address after # (see route): the servers dashboard, one server with its
+// Overview, Players, Settings, Backups and Console tabs, and the Backups,
+// Joining, Import, Add server, Setup guide and Account pages.
 
 const $ = (id) => document.getElementById(id);
 const labels = {
@@ -8,7 +10,7 @@ const labels = {
   installing: "Installing", importing: "Importing", updating: "Updating", restoring: "Restoring", crashed: "Crashed", error: "Needs attention",
 };
 let selected = null;      // server ID shown in the detail section
-let tab = "players";
+let tab = "overview";
 let consoleStream = null;
 let settings = {};
 
@@ -19,7 +21,7 @@ async function api(path, options = {}) {
   });
   let body = null;
   try { body = await res.json(); } catch (_) { /* empty */ }
-  if (res.status === 401 && !path.startsWith("/api/auth/")) {
+  if (res.status === 401 && !["/api/auth/state", "/api/auth/login", "/api/auth/setup", "/api/auth/reset", "/api/auth/password"].includes(path)) {
     signedOut(); // the session ended (signed out elsewhere, or expired)
   }
   if (!res.ok) throw new Error((body && body.error) || res.statusText);
@@ -40,49 +42,212 @@ function el(tag, attrs = {}, ...children) {
   return e;
 }
 
-// ---- server list ----
+// ---- server list (the dashboard) ----
+
+let serverList = [];       // last /api/servers answer
+let latestVersion = "";    // newest Bedrock release, when known
+let joinInfo = null;       // console list name and IP, from the setup guide info
 
 function action(id, what) {
   return async (ev) => {
-    ev.target.disabled = true;
+    ev.currentTarget.disabled = true;
     try { await post(`/api/servers/${encodeURIComponent(id)}/${what}`); }
     catch (err) { alert(err.message); }
     refresh();
   };
 }
 
-function renderServer(s) {
-  const busy = ["installing", "importing", "updating", "restoring", "starting", "stopping"].includes(s.state);
+const busyStates = ["installing", "importing", "updating", "restoring", "starting", "stopping"];
+const isLive = (s) => s.state === "running" || s.state === "starting";
+
+function stateEl(s) {
+  return el("span", { class: `state ${s.state}` }, el("span", { class: "dot" }), labels[s.state] || s.state);
+}
+
+// needsUpdate says whether a server is behind the newest release, and
+// whether it's far behind (a different 1.x, or ten or more versions back).
+function needsUpdate(s) {
+  if (!latestVersion || !s.version || s.preview) return null;
+  if (!newer(latestVersion, s.version)) return null;
+  const l = latestVersion.split(".").map(Number), v = s.version.split(".").map(Number);
+  return { far: l[0] !== v[0] || l[1] !== v[1] || (l[2] || 0) - (v[2] || 0) >= 10 };
+}
+
+function newer(a, b) {
+  const pa = a.split(".").map(Number), pb = b.split(".").map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const x = pa[i] || 0, y = pb[i] || 0;
+    if (x !== y) return x > y;
+  }
+  return false;
+}
+
+function whenShort(iso) {
+  if (!iso) return "Never";
+  const d = new Date(iso);
+  const today = new Date();
+  const yesterday = new Date(Date.now() - 864e5);
+  const time = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  if (d.toDateString() === today.toDateString()) return `Today ${time}`;
+  if (d.toDateString() === yesterday.toDateString()) return `Yesterday ${time}`;
+  return d.toLocaleDateString([], { month: "short", day: "numeric" }) + " " + time;
+}
+
+function playingText(s) {
+  if (s.players.length) return s.players.map((p) => p.name).join(", ");
+  return s.state === "running" ? "Nobody" : "";
+}
+
+const serverHref = (id, tab) => `#/server/${encodeURIComponent(id)}/${tab || "overview"}`;
+
+function startStopButton(s) {
+  const busy = busyStates.includes(s.state);
+  return isLive(s)
+    ? el("button", { class: "danger", onclick: action(s.id, "stop"), disabled: s.state === "stopping" }, "Stop")
+    : el("button", { class: "go", onclick: action(s.id, "start"), disabled: busy }, "Start");
+}
+
+function renderServerRow(s) {
+  const upd = needsUpdate(s);
+  const extra = [];
+  if (s.players.length) extra.push(`${s.players.length} playing`);
+  if (s.waiting) extra.push(`${s.waiting} waiting to be let in`);
+  if (upd) extra.push("update ready");
+  return el("div", { class: "srow" },
+    el("div", {},
+      el("a", { class: "name", href: serverHref(s.id) }, s.name),
+      el("div", { class: "sub" }, `port ${s.port}`),
+      s.message ? el("div", { class: "note warn" }, s.message) : null),
+    el("div", {}, stateEl(s)),
+    el("div", { class: "cell-muted" }, playingText(s), s.waiting ? el("div", { class: "note warn" }, `${s.waiting} waiting to be let in`) : null),
+    el("div", {},
+      el("div", { class: "mono" }, s.version || "…"),
+      upd ? el("div", { class: "note upd" + (upd.far ? " far" : "") }, upd.far ? "Well behind: update" : "Update ready") : null),
+    el("div", { class: "cell-muted" }, whenShort(s.lastBackup)),
+    el("div", { class: "acts" },
+      startStopButton(s),
+      el("a", { class: "button", href: serverHref(s.id) }, "Open")),
+    extra.length ? el("div", { class: "mobile-extra" }, extra.join(" · ")) : null);
+}
+
+function renderDashboard(list, force) {
+  const key = JSON.stringify([list, latestVersion]);
+  if (key === dashKey && !force) return; // unchanged: keep keyboard focus
+  dashKey = key;
+  const head = el("div", { class: "srow head" },
+    el("div", {}, "Server"), el("div", {}, "Status"), el("div", {}, "Playing"),
+    el("div", {}, "Version"), el("div", {}, "Last backup"), el("div", {}));
+  $("servers").replaceChildren(...(list.length ? [head, ...list.map(renderServerRow)] : []));
+  $("servers").hidden = list.length === 0;
+  $("empty").hidden = list.length > 0;
+  const running = list.filter((s) => s.state === "running").length;
+  const playing = list.reduce((n, s) => n + s.players.length, 0);
+  $("servers-summary").textContent = list.length
+    ? `${list.length} server${list.length === 1 ? "" : "s"} · ${running} running · ${playing} ${playing === 1 ? "person" : "people"} playing`
+    : "";
+
+  // Update note
+  const behind = list.filter((s) => needsUpdate(s) && !busyStates.includes(s.state));
+  $("update-banner").hidden = behind.length === 0;
+  if (behind.length) {
+    $("update-banner-text").replaceChildren(el("b", {}, `Bedrock ${latestVersion} is out. `),
+      `${behind.length} server${behind.length === 1 ? " can" : "s can"} update. Each one is backed up first and started again if it was running.`);
+    $("update-all").textContent = behind.length === 1 ? "Update it" : `Update all ${behind.length}`;
+  }
+
+  // Backups card
+  const never = list.filter((s) => !s.lastBackup).map((s) => s.name);
+  if (!list.length) $("dash-backups").textContent = "No servers yet.";
+  else if (never.length) $("dash-backups").textContent = `Not backed up yet: ${never.join(", ")}.`;
+  else {
+    const oldest = list.reduce((a, b) => (new Date(a.lastBackup) <= new Date(b.lastBackup) ? a : b));
+    $("dash-backups").textContent = list.length === 1
+      ? `Last backup ${whenShort(oldest.lastBackup).toLowerCase()}.`
+      : `All ${list.length} are backed up. Longest ago: ${oldest.name}, ${whenShort(oldest.lastBackup).toLowerCase()}.`;
+  }
+  loadDashAttempts(list);
+}
+
+$("update-all").addEventListener("click", async (ev) => {
+  const button = ev.currentTarget;
+  const behind = serverList.filter((s) => needsUpdate(s) && !busyStates.includes(s.state));
+  const playing = behind.reduce((n, s) => n + s.players.length, 0);
+  const note = playing ? `\n\n${playing} player(s) will be disconnected.` : "";
+  if (!confirm(`Update ${behind.map((s) => s.name).join(", ")} to Bedrock ${latestVersion}? Each is backed up first.${note}`)) return;
+  button.disabled = true;
+  for (const s of behind) {
+    try { await post(`/api/servers/${encodeURIComponent(s.id)}/update`); } catch (err) { alert(`${s.name}: ${err.message}`); }
+  }
+  button.disabled = false;
+  refresh();
+});
+
+// Tried to join, across servers. Only servers with someone waiting are asked.
+let attemptsLoadedAt = 0;
+async function loadDashAttempts(list) {
+  const waiting = list.filter((s) => s.waiting > 0);
+  if (!waiting.length) { $("dash-attempts").hidden = true; return; }
+  if (Date.now() - attemptsLoadedAt < 5000) return;
+  attemptsLoadedAt = Date.now();
+  const rows = [];
+  for (const s of waiting) {
+    try {
+      const v = await api(`/api/servers/${encodeURIComponent(s.id)}/players`);
+      for (const a of v.attempts || []) {
+        rows.push(row(a.name, `${s.name} · ${ago(a.at)}`,
+          btn("Allow", async () => {
+            try { await post(`/api/servers/${encodeURIComponent(s.id)}/allowlist`, { name: a.name }); } catch (err) { alert(err.message); }
+            attemptsLoadedAt = 0;
+            refresh();
+          }, "primary")));
+      }
+    } catch (_) { /* shown on the server's page */ }
+  }
+  $("dash-attempts-list").replaceChildren(...rows);
+  $("dash-attempts").hidden = rows.length === 0;
+}
+
+function renderBackupsOverview(list) {
+  const head = el("div", { class: "srow head" },
+    el("div", {}, "Server"), el("div", {}, "Status"), el("div", {}, ""), el("div", {}, ""), el("div", {}, "Last backup"), el("div", {}));
+  $("backups-overview").replaceChildren(head, ...list.map((s) => el("div", { class: "srow" },
+    el("div", {}, el("a", { class: "name", href: serverHref(s.id, "backups") }, s.name)),
+    el("div", {}, stateEl(s)), el("div", {}), el("div", {}),
+    el("div", { class: "cell-muted" }, whenShort(s.lastBackup)),
+    el("div", { class: "acts" }, el("a", { class: "button", href: serverHref(s.id, "backups") }, "Backups")),
+    el("div", { class: "mobile-extra" }, `Last backup: ${whenShort(s.lastBackup)}`))));
+}
+
+let detailKey = "";   // what the server page header last showed
+let ovPlayersKey = ""; // what the Overview player list last showed
+let dashKey = "";      // what the dashboard last showed
+
+function renderDetailHead(s) {
+  const key = JSON.stringify([s.id, s.name, s.state, s.version, s.port, s.message, latestVersion, s.players.length]);
+  if (key === detailKey) return; // unchanged: keep keyboard focus where it is
+  detailKey = key;
+  $("detail-name").textContent = s.name;
+  const upd = needsUpdate(s);
+  $("detail-facts").replaceChildren(stateEl(s),
+    el("span", {}, "Bedrock ", el("span", { class: "mono" }, s.version || "…")),
+    el("span", {}, "Port ", el("span", { class: "mono" }, String(s.port))));
+  $("detail-message").textContent = s.message || "";
+  $("detail-message").hidden = !s.message;
+  const busy = busyStates.includes(s.state);
   const copying = s.state === "importing";
-  const live = s.state === "running" || s.state === "starting";
-  const players = s.players.length
-    ? `${s.players.length} playing: ${s.players.map((p) => p.name).join(", ")}`
-    : (s.state === "running" ? "Nobody playing" : "");
-  return el("div", { class: "card" },
-    el("div", { class: "server-top" },
-      el("div", {},
-        el("div", { class: "server-name" }, s.name),
-        el("div", { class: "facts" }, `Bedrock ${s.version || "…"} · port ${s.port}`)),
-      el("span", { class: `pill ${s.state}` }, labels[s.state] || s.state)),
-    s.message ? el("p", { class: "message" }, s.message) : null,
-    players ? el("p", { class: "players" }, players) : null,
-    el("div", { class: "row" },
-      live
-        ? el("button", { class: "danger", onclick: action(s.id, "stop"), disabled: s.state === "stopping" }, "Stop")
-        : el("button", { class: "primary", onclick: action(s.id, "start"), disabled: busy }, "Start"),
-      el("button", { onclick: action(s.id, "restart"), disabled: !live || busy }, "Restart"),
-      el("button", { onclick: confirmUpdate(s), disabled: copying || s.state === "installing" || s.state === "updating" }, "Update"),
-      el("button", { onclick: () => openDetail(s, "players"), disabled: copying }, "Players"),
-      el("button", { onclick: () => openDetail(s, "settings"), disabled: copying }, "Settings"),
-      el("button", { onclick: () => openDetail(s, "backups"), disabled: copying }, "Backups"),
-      el("button", { onclick: () => openDetail(s, "console") }, "Console")));
+  const updBtn = el("button", { class: upd ? "info" : "", onclick: confirmUpdate(s), disabled: copying || s.state === "installing" || s.state === "updating" || s.state === "restoring" },
+    "Update", upd ? el("span", { class: "long" }, ` to ${latestVersion}`) : null);
+  $("detail-actions").replaceChildren(startStopButton(s),
+    el("button", { onclick: action(s.id, "restart"), disabled: !isLive(s) || busy }, "Restart"),
+    updBtn);
+  for (const t of ["players", "settings", "backups"]) $("tab-" + t).hidden = copying;
 }
 
 function confirmUpdate(s) {
   const run = action(s.id, "update");
   return (ev) => {
     const note = s.players.length ? `\n\n${s.players.length} player(s) will be disconnected.` : "";
-    if (confirm(`Update ${s.name}? It's backed up first, then restarted if it was running.${note}`)) run(ev);
+    if (confirm(`Update ${s.name}? It's backed up first, then started again if it was running.${note}`)) run(ev);
   };
 }
 
@@ -91,58 +256,238 @@ async function refresh() {
   try {
     const list = await api("/api/servers");
     if (!signedIn) return; // signed out while this was loading
+    serverList = list;
     importsFinished(list);
-    $("servers").replaceChildren(...list.map(renderServer));
-    $("empty").hidden = list.length > 0;
-    if (selected) {
+    if (view === "servers") renderDashboard(list);
+    if (view === "backups") renderBackupsOverview(list);
+    if (view === "server") {
       const s = list.find((x) => x.id === selected);
-      if (s) $("detail-name").textContent = s.name;
+      if (s) {
+        renderDetailHead(s);
+        if (tab === "overview") renderOverviewStatus(s);
+      } else {
+        resetSettings(); // it's gone (a failed import, say): nothing to save
+        location.hash = "#/";
+      }
     }
   } catch (err) {
     if (!signedIn) return;
-    $("servers").replaceChildren(el("p", { class: "error" }, "Can't reach the panel: " + err.message));
+    $("servers").hidden = false;
+    $("servers").replaceChildren(el("p", { class: "error card" }, "Can't reach the panel: " + err.message));
   }
 }
 
-// ---- detail: tabs ----
+// checkUpdates asks which Bedrock release is newest. The panel checks with
+// Mojang in the background, so the first answer may be empty: ask again soon.
+async function checkUpdates(tries = 6) {
+  try {
+    const u = await api("/api/updates");
+    if (u.latest && u.latest !== latestVersion) { latestVersion = u.latest; refresh(); }
+    if (!u.latest && !u.error && tries > 0 && signedIn) setTimeout(() => checkUpdates(tries - 1), 5000);
+  } catch (_) { /* try again later */ }
+}
 
-function openDetail(s, which) {
-  if (selected !== s.id) {
-    if (settingsDirty() && !confirm("Leave without saving your settings changes?")) return;
-    closeConsole();
+// ---- pages ----
+
+let view = "servers";
+
+// route shows the page the address names: #/, #/backups, #/joining,
+// #/import, #/add, #/guide, #/account, #/server/<id>/<tab>.
+let acceptedHash = "#/"; // the address of the page on screen
+
+// stay puts the address back to the page on screen, after the person chose
+// not to leave it (unsaved settings). It doesn't add to the history.
+function stay() {
+  history.replaceState(null, "", acceptedHash);
+}
+
+function route() {
+  if (!signedIn) return;
+  let parts;
+  try {
+    parts = location.hash.replace(/^#\/?/, "").split("/").map(decodeURIComponent);
+  } catch (_) {
+    parts = [];
+  }
+  let next = parts[0] || "servers";
+  if (!["servers", "backups", "joining", "import", "add", "guide", "account", "server"].includes(next)) next = "servers";
+  if (next === "server") {
+    const id = parts[1];
+    const t = ["overview", "players", "settings", "backups", "console"].includes(parts[2]) ? parts[2] : "overview";
+    if (!id) { location.hash = "#/"; return; }
+    if (id !== selected || view !== "server") {
+      if (settingsDirty() && !confirm("Leave without saving your settings changes?")) { stay(); return; }
+      closeConsole();
+      closeOverviewConsole();
+      resetSettings();
+      resetBackups();
+      clearServerPanes();
+      selected = id;
+      $("detail-name").textContent = "";
+      $("detail-facts").replaceChildren();
+      $("detail-actions").replaceChildren();
+      const s = serverList.find((x) => x.id === id);
+      if (s) renderDetailHead(s);
+    }
+    const s = serverList.find((x) => x.id === id);
+    const tabOK = !(s && s.state === "importing" && ["players", "settings", "backups"].includes(t));
+    acceptedHash = location.hash;
+    setView("server");
+    showTab(tabOK ? t : "overview");
+    refresh();
+    return;
+  }
+  if (view === "server") {
+    if (settingsDirty() && !confirm("Leave without saving your settings changes?")) { stay(); return; }
     resetSettings();
     resetBackups();
+    closeConsole();
+    closeOverviewConsole();
+    selected = null;
   }
-  selected = s.id;
-  $("detail-name").textContent = s.name;
-  $("detail").hidden = false;
-  showTab(which);
-  $("detail").scrollIntoView({ behavior: "smooth" });
+  acceptedHash = location.hash || "#/";
+  setView(next);
+  if (next === "servers") renderDashboard(serverList, true);
+  if (next === "backups") renderBackupsOverview(serverList);
+  if (next === "import") loadImports();
+  if (next === "add") { $("add-owner").value = settings.ownerGamertag || ""; $("add-name").focus(); }
+  if (next === "guide") openGuide(1);
+  if (next === "joining") fillJoinInfo();
+  refresh();
+}
+
+function setView(v) {
+  view = v;
+  for (const sec of document.querySelectorAll(".view")) sec.hidden = sec.id !== "view-" + v;
+  const navKey = v === "server" || v === "add" ? "servers" : v;
+  for (const a of document.querySelectorAll("[data-nav]")) {
+    if (a.dataset.nav === navKey) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
+  }
+  window.scrollTo(0, 0);
 }
 
 function showTab(which) {
   tab = which;
-  for (const t of ["players", "settings", "backups", "console"]) {
-    $("tab-" + t).setAttribute("aria-selected", String(t === which));
+  for (const t of ["overview", "players", "settings", "backups", "console"]) {
+    const a = $("tab-" + t);
+    a.href = serverHref(selected, t);
+    if (t === which) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
     $("pane-" + t).hidden = t !== which;
   }
+  if (which !== "console") closeConsole();
+  if (which !== "overview") closeOverviewConsole();
   if (which === "console") openConsole();
   else if (which === "settings") { if (!settingsView || !settingsDirty()) loadSettings(); }
   else if (which === "backups") loadBackups();
-  else loadPlayers();
+  else if (which === "players") loadPlayers();
+  else loadOverview();
 }
 
-for (const b of document.querySelectorAll(".tabs button")) {
-  b.addEventListener("click", () => showTab(b.dataset.tab));
+window.addEventListener("hashchange", route);
+
+// Links inside a server page that switch tabs.
+for (const a of document.querySelectorAll("[data-goto]")) {
+  a.addEventListener("click", (ev) => { ev.preventDefault(); location.hash = serverHref(selected, a.dataset.goto); });
 }
 
-$("detail-close").addEventListener("click", () => {
-  if (settingsDirty() && !confirm("Close without saving your settings changes?")) return;
-  resetSettings();
-  resetBackups();
-  closeConsole();
-  selected = null;
-  $("detail").hidden = true;
+// ---- overview tab ----
+
+let ovStream = null;
+const ovLines = [];
+
+function closeOverviewConsole() {
+  if (ovStream) ovStream.close();
+  ovStream = null;
+  ovLines.length = 0;
+  $("ov-console").replaceChildren();
+}
+
+function renderOverviewStatus(s) {
+  const key = JSON.stringify([s.id, s.state, s.players]);
+  if (key === ovPlayersKey) return;
+  ovPlayersKey = key;
+  $("ov-playing-title").textContent = s.players.length ? `Playing now · ${s.players.length}` : "Playing now";
+  $("ov-online").replaceChildren(...(s.players.length ? s.players.map((p) => row(p.name,
+    `since ${new Date(p.since).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`,
+    btn("Message", () => {
+      const text = prompt(`Message to ${p.name}:`);
+      if (text) post(sid() + "/message", { name: p.name, text }).catch((err) => alert(err.message));
+    }),
+    btn("Kick", () => {
+      const reason = prompt(`Kick ${p.name}? Optional reason:`, "");
+      if (reason !== null) post(sid() + "/kick", { name: p.name, reason }).catch((err) => alert(err.message));
+    }, "danger"))) : [emptyRow(s.state === "running" ? "Nobody is playing." : "The server isn't running.")]));
+  $("ov-command").hidden = s.state !== "running";
+}
+
+async function loadOverview() {
+  if (!signedIn || view !== "server" || tab !== "overview" || !selected) return;
+  const id = selected;
+  const s = serverList.find((x) => x.id === id);
+  if (s) renderOverviewStatus(s);
+  if (!ovStream) {
+    ovStream = new EventSource(sid() + "/console");
+    ovStream.onmessage = (ev) => {
+      ovLines.push(ev.data);
+      if (ovLines.length > 9) ovLines.splice(0, ovLines.length - 9);
+      $("ov-console").replaceChildren(...ovLines.map((l) => el("span", { class: lineClass(l) }, l + "\n")));
+    };
+  }
+  const [settingsV, players, backups] = await Promise.all([
+    api(`/api/servers/${encodeURIComponent(id)}/settings`).catch(() => null),
+    api(`/api/servers/${encodeURIComponent(id)}/players`).catch(() => null),
+    api(`/api/servers/${encodeURIComponent(id)}/backups`).catch(() => null),
+  ]);
+  if (id !== selected || tab !== "overview") return;
+  // World
+  const fields = {};
+  for (const g of (settingsV && settingsV.groups) || []) for (const f of g.fields) fields[f.key] = f;
+  const shown = (key, label) => {
+    const f = fields[key];
+    if (!f) return [];
+    let v = f.value;
+    if (f.options) { const o = f.options.find((x) => x.value === v); if (o) v = o.label; }
+    if (f.type === "bool") v = v === "true" ? "On" : "Off";
+    return [el("div", {}, el("dt", {}, label), el("dd", {}, v || "(not set)"))];
+  };
+  $("ov-world").replaceChildren(...shown("gamemode", "Game mode"), ...shown("difficulty", "Difficulty"),
+    ...shown("level-name", "World"), ...shown("allow-cheats", "Cheats"));
+  // Who can join
+  if (!players) $("ov-join").textContent = "Couldn't load the players.";
+  if (players) {
+    const ops = (players.operators || []).length;
+    const allow = (players.allowlist || []).length;
+    const wait = (players.attempts || []).length;
+    $("ov-join").textContent = (players.allowlistEnabled ? `Allowlist on · ${allow} ${allow === 1 ? "person" : "people"}` : "Allowlist off: anyone who can reach it can join")
+      + ` · ${ops} operator${ops === 1 ? "" : "s"}. ` + (wait ? `${wait} waiting to be let in.` : "Nobody waiting to be let in.");
+  }
+  // Backups
+  if (!backups) $("ov-backups").textContent = "Couldn't load the backups.";
+  if (backups) {
+    const last = (backups.backups || [])[0];
+    const p = backups.plan;
+    const plan = p.every === "off" ? "Automatic backups are off." : (p.every === "daily" ? `Every day at ${p.at} · keeps ${p.keep}.` : `Every ${p.every.replace("h", " hours").replace(/^1 hours$/, "hour")} · keeps ${p.keep}.`);
+    $("ov-backups").textContent = (backups.running ? "Backing up now… " : (last ? `Last: ${whenShort(last.time).toLowerCase()}. ` : "No backups yet. ")) + plan;
+    $("ov-backup-now").disabled = backups.running;
+  }
+}
+
+$("ov-command").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const input = $("ov-command-input");
+  const command = input.value.trim();
+  if (!command) return;
+  try { await post(sid() + "/command", { command }); input.value = ""; } catch (err) { alert(err.message); }
+});
+for (const b of document.querySelectorAll("[data-cmd]")) {
+  b.addEventListener("click", async () => {
+    try { await post(sid() + "/command", { command: b.dataset.cmd }); } catch (err) { alert(err.message); }
+  });
+}
+$("ov-backup-now").addEventListener("click", async (ev) => {
+  ev.currentTarget.disabled = true; // before any await: currentTarget is gone after
+  try { await post(sid() + "/backups"); } catch (err) { alert(err.message); }
+  setTimeout(loadOverview, 1500);
 });
 
 // ---- players tab ----
@@ -152,14 +497,29 @@ function showPlayersError(err) {
   $("players-error").hidden = !err;
 }
 
+// playersCall runs a Players tab request and shows the answer, unless the
+// page has moved on to another server meanwhile.
 async function playersCall(fn) {
+  const id = selected;
   try {
     const v = await fn();
+    if (id !== selected) return;
     showPlayersError(null);
     if (v) renderPlayers(v);
   } catch (err) {
-    showPlayersError(err);
+    if (id === selected) showPlayersError(err);
   }
+}
+
+// clearServerPanes empties what the Players and Overview tabs show, so
+// nothing from one server is left on another's page.
+function clearServerPanes() {
+  for (const id of ["online", "allowlist", "operators", "attempts", "ov-online", "ov-world"]) $(id).replaceChildren();
+  $("attempts-box").hidden = true;
+  showPlayersError(null);
+  for (const id of ["ov-join", "ov-backups"]) $(id).textContent = "…";
+  detailKey = "";
+  ovPlayersKey = "";
 }
 
 async function loadPlayers() {
@@ -364,7 +724,7 @@ function renderSettings() {
       return el("div", { class: "field" + (dirty ? " dirty" : "") },
         el("div", { class: "top" }, el("span", { class: "label" }, f.label), control(f)),
         f.help ? el("div", { class: "help" }, f.help) : null,
-        f.link === "players" ? el("div", { class: "help" }, el("a", { href: "#", onclick: (e) => { e.preventDefault(); showTab("players"); } }, "Open the Players tab")) : null,
+        f.link === "players" ? el("div", { class: "help" }, el("a", { href: serverHref(selected, "players") }, "Open the Players tab")) : null,
         dirty ? el("div", { class: "changed" }, `Changed from ${f.value || "(not set)"}`) : null,
         warn ? el("div", { class: "warn" }, "⚠ " + f.warning) : null);
     }))));
@@ -495,15 +855,6 @@ $("console-form").addEventListener("submit", async (ev) => {
 
 // ---- add server ----
 
-$("add-toggle").addEventListener("click", () => {
-  $("add-form").hidden = !$("add-form").hidden;
-  if (!$("add-form").hidden) {
-    $("import-box").hidden = true;
-    $("add-owner").value = settings.ownerGamertag || "";
-    $("add-name").focus();
-  }
-});
-$("add-cancel").addEventListener("click", () => { $("add-form").hidden = true; });
 $("add-form").addEventListener("submit", async (ev) => {
   ev.preventDefault();
   $("add-error").hidden = true;
@@ -515,9 +866,8 @@ $("add-form").addEventListener("submit", async (ev) => {
     });
     settings.ownerGamertag = $("add-owner").value.trim();
     $("add-form").reset();
-    $("add-form").hidden = true;
     await refresh();
-    openDetail(s, "console");
+    location.hash = serverHref(s.id, "console");
   } catch (err) {
     $("add-error").textContent = err.message;
     $("add-error").hidden = false;
@@ -666,8 +1016,8 @@ function importsFinished(list) {
   if (!ended.length) return;
   // A failed import leaves no card, so open the import screen to show why.
   const failed = ended.some((id) => !list.some((s) => s.id === id));
-  if (failed) $("import-box").hidden = false;
-  if (!$("import-box").hidden) loadImports();
+  if (failed && view !== "import") location.hash = "#/import";
+  else if (view === "import") loadImports();
 }
 
 async function loadImports() {
@@ -755,14 +1105,6 @@ function importRow(c) {
       go));
 }
 
-$("import-toggle").addEventListener("click", () => {
-  $("import-box").hidden = !$("import-box").hidden;
-  if (!$("import-box").hidden) {
-    $("add-form").hidden = true;
-    loadImports();
-  }
-});
-$("import-close").addEventListener("click", () => { $("import-box").hidden = true; });
 
 // ---- signing in ----
 
@@ -799,14 +1141,14 @@ async function start() {
     return;
   }
   if ($("auth-offline")) $("auth-offline").hidden = true;
-  $("version").textContent = st.version || "";
+  $("version").textContent = st.version ? "Version " + st.version : "";
+  $("version-2").textContent = st.version ? "Blockheads Control Panel " + st.version : "";
   if (st.mode === "signedIn") {
     enterApp(st);
     return;
   }
   $("auth-view").hidden = false;
   $("app-view").hidden = true;
-  $("account-toggle").hidden = true;
   if (st.mode === "setup") {
     $("setup-code-help").replaceChildren(st.usesOldPassword
       ? (st.oldPasswordFromEnv
@@ -823,19 +1165,71 @@ function enterApp(st) {
   signedIn = true;
   $("auth-view").hidden = true;
   $("app-view").hidden = false;
-  $("account-toggle").hidden = false;
-  $("account-toggle").textContent = st.username + " ▾";
   $("account-name").textContent = st.username;
+  $("side-user").textContent = st.username;
+  $("side-avatar").textContent = (st.username || "?").slice(0, 1).toUpperCase();
+  $("tab-user").textContent = st.username;
   $("reset-user").value = st.username;
+  applyPrefs(st.prefs || {}, false);
   api("/api/settings").then((s) => { settings = s || {}; }).catch(() => {});
-  refresh();
+  loadJoinInfo();
+  checkUpdates();
   timers.forEach(clearInterval);
+  const onServer = (t) => signedIn && view === "server" && selected && tab === t && !document.hidden;
   timers = [
     setInterval(refresh, 2000),
-    setInterval(() => { if (selected && tab === "players" && !document.hidden) loadPlayers(); }, 3000),
-    setInterval(() => { if (selected && tab === "backups" && !document.hidden) loadBackups(); }, 3000),
+    setInterval(() => { if (onServer("players")) loadPlayers(); }, 3000),
+    setInterval(() => { if (onServer("backups")) loadBackups(); }, 3000),
+    setInterval(() => { if (onServer("overview")) loadOverview(); }, 10000),
+    setInterval(checkUpdates, 10 * 60 * 1000),
   ];
-  if (!st.setupDone) openGuide(1);
+  if (!st.setupDone && !location.hash.startsWith("#/guide")) location.hash = "#/guide";
+  else route();
+}
+
+// ---- console list info (Joining page, sidebar, dashboard) ----
+
+async function loadJoinInfo() {
+  try {
+    joinInfo = await api("/api/setup-guide");
+  } catch (_) { return; }
+  fillJoinInfo();
+}
+
+function fillJoinInfo() {
+  if (!joinInfo) return;
+  const name = joinInfo.listName || "Server List";
+  const ip = joinInfo.listIP || "the panel's IP";
+  for (const id of ["side-list-name", "dash-list-name", "join-list-name"]) $(id).textContent = name;
+  for (const id of ["side-list-ip", "dash-list-ip", "join-list-ip"]) $(id).textContent = ip;
+}
+
+// ---- appearance ----
+
+let prefs = { style: "control", mode: "auto" };
+
+// applyPrefs sets the look, and remembers it in this browser so the next
+// visit starts with it before the account's copy loads.
+function applyPrefs(p, save) {
+  prefs = { style: p.style === "treehouse" ? "treehouse" : "control", mode: ["light", "dark", "auto"].includes(p.mode) ? p.mode : "auto" };
+  // Treehouse isn't built yet: show Control Room until it is.
+  document.documentElement.dataset.style = "control";
+  document.documentElement.dataset.mode = prefs.mode;
+  try { localStorage.setItem("bh-prefs", JSON.stringify(prefs)); } catch (_) { /* private window */ }
+  for (const r of document.querySelectorAll("input[name=style]")) r.checked = r.value === prefs.style || (prefs.style === "treehouse" && r.value === "control");
+  for (const r of document.querySelectorAll("input[name=mode]")) r.checked = r.value === prefs.mode;
+  if (save) {
+    api("/api/auth/prefs", { method: "PUT", body: JSON.stringify(prefs) })
+      .then(() => { $("prefs-error").hidden = true; })
+      .catch((err) => { $("prefs-error").textContent = "Couldn't save: " + err.message; $("prefs-error").hidden = false; });
+  }
+}
+for (const r of document.querySelectorAll("input[name=style], input[name=mode]")) {
+  r.addEventListener("change", () => {
+    const style = document.querySelector("input[name=style]:checked");
+    const mode = document.querySelector("input[name=mode]:checked");
+    applyPrefs({ style: style ? style.value : "control", mode: mode ? mode.value : "auto" }, true);
+  });
 }
 
 // signedOut goes back to the sign-in page and forgets what was on screen.
@@ -845,15 +1239,30 @@ function signedOut() {
   timers.forEach(clearInterval);
   timers = [];
   closeConsole();
+  closeOverviewConsole();
   resetSettings();
   resetBackups();
   selected = null;
   settings = {};
   guideInfo = null;
+  joinInfo = null;
+  serverList = [];
   gamertagWarned = false;
-  for (const id of ["detail", "account-box", "guide", "import-box", "add-form", "password-msg"]) $(id).hidden = true;
+  view = "servers";
+  acceptedHash = "#/";
+  clearServerPanes();
+  dashKey = "";
+  latestVersion = "";
+  $("update-banner").hidden = true;
+  $("dash-attempts").hidden = true;
+  $("dash-backups").textContent = "";
+  $("servers-summary").textContent = "";
+  $("detail-name").textContent = "";
+  $("detail-facts").replaceChildren();
+  $("detail-actions").replaceChildren();
+  $("password-msg").hidden = true;
   for (const f of ["password-form", "add-form"]) $(f).reset();
-  for (const id of ["servers", "online", "allowlist", "operators", "attempts", "console-log", "import-list", "import-results", "guide-checklist"]) $(id).replaceChildren();
+  for (const id of ["servers", "online", "allowlist", "operators", "attempts", "console-log", "import-list", "import-results", "guide-checklist", "ov-online", "dash-attempts-list", "backups-overview"]) $(id).replaceChildren();
   start();
 }
 
@@ -902,11 +1311,6 @@ $("reset-form").addEventListener("submit", async (ev) => {
 
 // ---- account ----
 
-$("account-toggle").addEventListener("click", () => {
-  $("account-box").hidden = !$("account-box").hidden;
-  if (!$("account-box").hidden) $("account-box").scrollIntoView({ behavior: "smooth" });
-});
-$("account-close").addEventListener("click", () => { $("account-box").hidden = true; });
 $("logout").addEventListener("click", async () => {
   try { await post("/api/auth/logout"); } catch (_) { /* signed out anyway */ }
   signedOut();
@@ -935,7 +1339,6 @@ $("password-form").addEventListener("submit", async (ev) => {
     msg.textContent = err.message;
   }
 });
-$("guide-open").addEventListener("click", () => { $("account-box").hidden = true; openGuide(1); });
 
 // ---- setup guide ----
 
@@ -956,7 +1359,6 @@ async function openGuide(step) {
   $("guide-everywhere-text").textContent = `Also add me to the allowlist and make me an operator on the ${n} server${n === 1 ? "" : "s"} I already have`;
   $("guide-gamertag-msg").hidden = true;
   showGuideStep(step);
-  $("guide").scrollIntoView({ behavior: "smooth" });
 }
 
 function showGuideStep(step) {
@@ -1012,7 +1414,7 @@ async function renderChecklist() {
 
 async function finishGuide() {
   try { await post("/api/setup-guide/done", { done: true }); } catch (_) { /* shown again next time */ }
-  $("guide").hidden = true;
+  location.hash = "#/";
 }
 
 $("guide-back").addEventListener("click", () => showGuideStep(Math.max(1, guideStep - 1)));
@@ -1046,8 +1448,6 @@ $("guide-next").addEventListener("click", async () => {
   if (guideStep === 4) { finishGuide(); return; }
   showGuideStep(guideStep + 1);
 });
-$("guide-import").addEventListener("click", () => { $("import-toggle").click(); $("import-box").scrollIntoView({ behavior: "smooth" }); });
-$("guide-add").addEventListener("click", () => { $("add-toggle").click(); $("add-form").scrollIntoView({ behavior: "smooth" }); });
 
 // ---- start ----
 

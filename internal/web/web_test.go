@@ -36,7 +36,7 @@ func newTestServer(t *testing.T) (*Server, string) {
 func newBareServer(t *testing.T) (*Server, string) {
 	t.Helper()
 	dir := t.TempDir()
-	mgr := servers.New(servers.Options{DataDir: dir})
+	mgr := servers.New(servers.Options{DataDir: dir, DownloadAPI: "http://127.0.0.1:1/none"})
 	if err := mgr.Load(); err != nil {
 		t.Fatal(err)
 	}
@@ -377,5 +377,31 @@ func TestSetupGuide(t *testing.T) {
 	w = call(h, "GET", "/api/setup-guide", "", c.(*http.Cookie))
 	if !strings.Contains(w.Body.String(), `"setupDone":true`) || !strings.Contains(w.Body.String(), `"ownerGamertag":"Kemikal Halo"`) {
 		t.Errorf("guide after: %s", w.Body)
+	}
+}
+
+func TestPrefsAndUpdates(t *testing.T) {
+	s, _ := newTestServer(t)
+	h := s.routes()
+	c, _ := testCookies.Load(s)
+	ck := c.(*http.Cookie)
+	if w := call(h, "PUT", "/api/auth/prefs", `{"mode":"light","style":"control"}`, ck); w.Code != 200 || !strings.Contains(w.Body.String(), `"mode":"light"`) {
+		t.Errorf("prefs: %d %s", w.Code, w.Body)
+	}
+	if w := call(h, "PUT", "/api/auth/prefs", `{"mode":"purple"}`, ck); w.Code != 400 {
+		t.Errorf("bad pref: %d", w.Code)
+	}
+	var st map[string]any
+	json.Unmarshal(call(h, "GET", "/api/auth/state", "", ck).Body.Bytes(), &st)
+	if p, _ := st["prefs"].(map[string]any); p["mode"] != "light" {
+		t.Errorf("state prefs: %v", st)
+	}
+	if w := call(h, "GET", "/api/updates", "", ck); w.Code != 200 || !strings.Contains(w.Body.String(), `"latest"`) {
+		t.Errorf("updates: %d %s", w.Code, w.Body)
+	}
+	for _, f := range []string{"/theme.js", "/fonts/ibm-plex-sans-latin-400-normal.woff2"} {
+		if w := call(h, "GET", f, ""); w.Code != 200 {
+			t.Errorf("%s: %d", f, w.Code)
+		}
 	}
 }

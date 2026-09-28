@@ -1,21 +1,18 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-mode="auto" data-style="control">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
 <title>Blockheads Control Panel</title>
+<script src="theme.js"></script>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<header>
-  <h1>Blockheads Control Panel</h1>
-  <span id="version" class="muted"></span>
-  <span class="spacer"></span>
-  <button id="account-toggle" class="plain" hidden></button>
-</header>
 
 <!-- Signing in, first-time setup and password reset. -->
 <section id="auth-view" class="auth" hidden>
+  <div class="brand auth-brand"><svg class="logo" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l9 5v10l-9 5-9-5V7z"></path><path d="M3 7l9 5 9-5"></path><path d="M12 12v10"></path></svg><span>Blockheads</span></div>
   <form id="setup-form" class="card" hidden>
     <h2>Welcome! Create the owner account</h2>
     <p class="muted small">The owner can do everything in the panel. You'll sign in with this name and password from now on.</p>
@@ -69,265 +66,433 @@
     </div>
     <p id="reset-error" class="error" hidden></p>
   </form>
+  <p class="muted small center" id="version"></p>
 </section>
 
-<main id="app-view" hidden>
-  <section id="account-box" class="card" hidden>
-    <div class="row between">
-      <h3>Signed in as <span id="account-name"></span></h3>
-      <button type="button" id="account-close">Close</button>
+<div id="app-view" class="shell" hidden>
+  <nav class="sidebar" aria-label="Main">
+    <a class="brand" href="#/"><svg class="logo" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l9 5v10l-9 5-9-5V7z"></path><path d="M3 7l9 5 9-5"></path><path d="M12 12v10"></path></svg><span>Blockheads</span></a>
+    <a class="nav" href="#/" data-nav="servers"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="6" rx="1.5"></rect><rect x="3" y="14" width="18" height="6" rx="1.5"></rect><path d="M7 7h.01M7 17h.01"></path></svg>Servers</a>
+    <a class="nav" href="#/backups" data-nav="backups"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="5" rx="1"></rect><path d="M5 9v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9M10 13h4"></path></svg>Backups</a>
+    <a class="nav" href="#/joining" data-nav="joining"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18"></path></svg>Joining</a>
+    <a class="nav" href="#/import" data-nav="import"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5"></path><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"></path></svg>Import</a>
+    <a class="nav" href="#/guide" data-nav="guide"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 11l2 2 4-4"></path><rect x="4" y="4" width="16" height="16" rx="3"></rect></svg>Setup guide</a>
+    <div class="sidebar-foot">
+      <a class="list-card" href="#/joining">
+        <span class="list-card-title">Console list</span>
+        <span id="side-list-name"></span>
+        <span id="side-list-ip" class="mono"></span>
+      </a>
+      <a class="nav account" href="#/account" data-nav="account"><span class="avatar" id="side-avatar"></span><span id="side-user" class="grow"></span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg></a>
     </div>
-    <div class="row">
-      <button id="guide-open">Setup guide</button>
-      <button id="logout">Sign out</button>
-      <button id="logout-all">Sign out everywhere</button>
-    </div>
-    <form id="password-form">
-      <h3>Change password</h3>
-      <p class="muted small">Other browsers are signed out when you change it.</p>
-      <div class="row">
-        <input id="pw-current" type="password" placeholder="Current password" autocomplete="current-password" required aria-label="Current password">
-        <input id="pw-new" type="password" minlength="8" placeholder="New password" autocomplete="new-password" required aria-label="New password">
-        <input id="pw-new2" type="password" minlength="8" placeholder="New password again" autocomplete="new-password" required aria-label="New password again">
-        <button type="submit" class="primary">Change</button>
+  </nav>
+
+  <main class="content">
+    <!-- Servers -->
+    <section id="view-servers" class="view" hidden>
+      <div class="page-head">
+        <div class="grow">
+          <h1>Servers</h1>
+          <p id="servers-summary" class="muted"></p>
+        </div>
+        <a class="button" href="#/import">Import</a>
+        <a class="button primary" href="#/add">Add server</a>
       </div>
-      <p id="password-msg" class="small" hidden></p>
-    </form>
-  </section>
-
-  <section id="guide" class="card guide" hidden>
-    <div class="row between">
-      <h2>Setup guide <span id="guide-step-label" class="muted small"></span></h2>
-      <button type="button" id="guide-skip">Skip for now</button>
-    </div>
-    <ol class="steps" id="guide-steps">
-      <li data-step="1">Your gamertag</li>
-      <li data-step="2">Joining from consoles</li>
-      <li data-step="3">Your servers</li>
-      <li data-step="4">Checklist</li>
-    </ol>
-
-    <div class="guide-pane" data-step="1">
-      <p>Your Xbox gamertag goes on the allowlist and becomes an operator on every server you add, so you can always get in.</p>
-      <label>Gamertag
-        <input id="guide-gamertag" maxlength="32" autocomplete="off" placeholder="e.g. Kemikal Halo">
-      </label>
-      <label class="check" id="guide-everywhere-label">
-        <input id="guide-everywhere" type="checkbox" checked>
-        <span id="guide-everywhere-text">Also add me to the servers I already have</span>
-      </label>
-      <p id="guide-gamertag-msg" class="small" hidden></p>
-    </div>
-
-    <div class="guide-pane" data-step="2">
-      <p><b>At home, the easy way:</b> open Minecraft, go to <b>Play → Friends</b>, and under <b>LAN Games</b> pick <b id="guide-list-name"></b>. Then pick a server. A PS5 finds it this way with no other setup.</p>
-      <p><b>If it isn't there</b> (or on an Xbox or Switch): set the console's DNS to <b id="guide-list-ip"></b>, restart the console, open Minecraft, go to <b>Servers</b> and join any featured server, such as The Hive. You'll land in the menu of your servers.</p>
-      <p class="muted small">Players still need to be on a server's allowlist; anyone the menu sends in who isn't shows up under <b>Tried to join</b> on that server's Players tab, with an Allow button.</p>
-    </div>
-
-    <div class="guide-pane" data-step="3">
-      <p id="guide-servers-text"></p>
-      <div class="row">
-        <button type="button" id="guide-import" hidden>Import from Crafty</button>
-        <button type="button" id="guide-add" hidden>Add a server</button>
+      <div id="update-banner" class="banner info" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5"></path><path d="M4 19h16"></path></svg>
+        <p id="update-banner-text" class="grow"></p>
+        <button type="button" id="update-all">Update all</button>
       </div>
-    </div>
-
-    <div class="guide-pane" data-step="4">
-      <ul id="guide-checklist" class="checklist"></ul>
-    </div>
-
-    <div class="row guide-nav">
-      <button type="button" id="guide-back">Back</button>
-      <button type="button" id="guide-next" class="primary">Next</button>
-    </div>
-  </section>
-
-  <section>
-    <div class="section-head">
-      <h2>Servers</h2>
-      <div class="row">
-        <button id="import-toggle">Import</button>
-        <button id="add-toggle" class="primary">Add server</button>
+      <p id="empty" class="card muted" hidden>No servers yet. <a href="#/add">Add a server</a> to download Bedrock and start one, or <a href="#/import">import</a> your servers from Crafty.</p>
+      <div id="servers" class="server-table"></div>
+      <div class="dash-cards">
+        <section id="dash-attempts" class="card attention" hidden>
+          <h2>Tried to join</h2>
+          <ul id="dash-attempts-list" class="people"></ul>
+        </section>
+        <section class="card">
+          <h2>Backups</h2>
+          <p id="dash-backups" class="muted"></p>
+          <a href="#/backups">All backups</a>
+        </section>
+        <section class="card">
+          <h2>Joining from consoles</h2>
+          <p class="muted">LAN Games shows <b id="dash-list-name"></b>. Or set the console's DNS to <span id="dash-list-ip" class="mono"></span>.</p>
+          <a href="#/joining">How to join</a>
+        </section>
       </div>
-    </div>
+    </section>
 
-    <div id="import-box" class="card" hidden>
-      <div class="row between">
-        <h3>Import from Crafty or another folder</h3>
-        <button type="button" id="import-close">Close</button>
-      </div>
-      <p id="import-missing" class="muted small" hidden></p>
-      <div id="import-ready">
-        <p class="muted small">Each server is copied into the panel with its worlds, settings, allowlist and operators. The original folder isn't changed, so you can go back to it.</p>
-        <label class="check">
-          <input id="import-stopped" type="checkbox">
-          <span>I've stopped these servers in the other panel and will leave them stopped. Two copies can't use the same port, and a server that's running while it's copied can give a damaged world.</span>
+    <!-- Add a server -->
+    <section id="view-add" class="view narrow" hidden>
+      <div class="crumbs"><a href="#/">Servers</a> /</div>
+      <h1>Add a server</h1>
+      <form id="add-form" class="card">
+        <label>Server name
+          <input id="add-name" maxlength="40" required placeholder="Survival world" autocomplete="off">
         </label>
-        <p id="import-error" class="error" hidden></p>
-        <ul id="import-results" class="people"></ul>
-        <ul id="import-list" class="people imports"></ul>
-      </div>
-    </div>
-
-    <form id="add-form" class="card" hidden>
-      <label>Server name
-        <input id="add-name" maxlength="40" required placeholder="Survival world" autocomplete="off">
-      </label>
-      <label>Your gamertag
-        <input id="add-owner" maxlength="32" placeholder="Optional: you'll be on the allowlist and an operator" autocomplete="off">
-      </label>
-      <label class="check">
-        <input id="add-eula" type="checkbox" required>
-        <span>I accept the <a href="https://www.minecraft.net/eula" target="_blank" rel="noopener">Minecraft EULA</a>. The server is downloaded from Mojang.</span>
-      </label>
-      <div class="row">
-        <button type="submit" class="primary">Create and start</button>
-        <button type="button" id="add-cancel">Cancel</button>
-      </div>
-      <p id="add-error" class="error" hidden></p>
-    </form>
-
-    <p id="empty" class="muted" hidden>No servers yet. Press <b>Add server</b> to download Bedrock and start one, or <b>Import</b> to bring servers over from Crafty.</p>
-    <div id="servers"></div>
-  </section>
-
-  <section id="detail" hidden>
-    <div class="section-head">
-      <h2 id="detail-name"></h2>
-      <button id="detail-close">Close</button>
-    </div>
-    <div class="tabs" role="tablist">
-      <button role="tab" id="tab-players" data-tab="players">Players</button>
-      <button role="tab" id="tab-settings" data-tab="settings">Settings</button>
-      <button role="tab" id="tab-backups" data-tab="backups">Backups</button>
-      <button role="tab" id="tab-console" data-tab="console">Console</button>
-    </div>
-
-    <div id="pane-settings" role="tabpanel" hidden>
-      <p id="settings-error" class="error" hidden></p>
-      <div id="settings-saved" class="card notice" hidden>
-        <p id="settings-saved-text"></p>
+        <label>Your gamertag
+          <input id="add-owner" maxlength="32" placeholder="Optional: you'll be on the allowlist and an operator" autocomplete="off">
+        </label>
+        <label class="check">
+          <input id="add-eula" type="checkbox" required>
+          <span>I accept the <a href="https://www.minecraft.net/eula" target="_blank" rel="noopener">Minecraft EULA</a>. The server is downloaded from Mojang.</span>
+        </label>
         <div class="row">
-          <button id="settings-restart" class="primary" hidden>Restart now</button>
-          <button id="settings-saved-close">OK</button>
+          <button type="submit" class="primary">Create and start</button>
+          <a class="button" href="#/">Cancel</a>
         </div>
-      </div>
-
-      <form id="rename-form" class="card">
-        <h3>Name in the panel and console menu</h3>
-        <div class="row">
-          <input id="rename-name" maxlength="40" autocomplete="off">
-          <button type="submit">Rename</button>
-        </div>
+        <p id="add-error" class="error" hidden></p>
       </form>
+    </section>
 
-      <form id="settings-form">
-        <div id="settings-groups"></div>
-        <div id="settings-bar" class="savebar" hidden>
-          <span id="settings-dirty"></span>
-          <button type="button" id="settings-discard">Discard</button>
-          <button type="submit" class="primary">Save</button>
-        </div>
-      </form>
-
-      <details id="raw-box" class="card">
-        <summary>Advanced: edit server.properties directly</summary>
-        <p class="muted small">For settings that aren't above. The port and LAN settings are put back as the panel needs them. Changes apply after a restart.</p>
-        <textarea id="raw-text" spellcheck="false" rows="18"></textarea>
-        <div class="row">
-          <button id="raw-save" type="button" class="primary">Save file</button>
-          <button id="raw-reload" type="button">Reload</button>
-        </div>
-      </details>
-    </div>
-
-    <div id="pane-players" role="tabpanel">
-      <p id="players-error" class="error" hidden></p>
-
-      <div id="attempts-box" class="card attention" hidden>
-        <h3>Tried to join</h3>
-        <p class="muted small">They picked this server from the console menu but aren't on the allowlist.</p>
-        <ul id="attempts" class="people"></ul>
-      </div>
-
-      <div class="card">
-        <h3>Online now</h3>
-        <ul id="online" class="people"></ul>
-        <form id="say-form" class="row">
-          <input id="say-text" maxlength="200" placeholder="Message everyone" autocomplete="off">
-          <button type="submit">Send</button>
-        </form>
-      </div>
-
-      <div class="card">
-        <div class="row between">
-          <h3>Allowlist</h3>
-          <label class="switch"><input id="allow-enabled" type="checkbox"> <span id="allow-enabled-label">On</span></label>
-        </div>
-        <p id="allow-help" class="muted small"></p>
-        <form id="allow-form" class="row">
-          <input id="allow-name" maxlength="32" placeholder="Gamertag" autocomplete="off">
-          <button type="submit" class="primary">Add</button>
-        </form>
-        <ul id="allowlist" class="people"></ul>
-      </div>
-
-      <div class="card">
-        <h3>Operators</h3>
-        <p class="muted small">Operators can use commands and change game settings in the world.</p>
-        <form id="op-form" class="row">
-          <input id="op-name" maxlength="32" placeholder="Gamertag" autocomplete="off">
-          <button type="submit">Make operator</button>
-        </form>
-        <ul id="operators" class="people"></ul>
-      </div>
-    </div>
-
-    <div id="pane-backups" role="tabpanel" hidden>
-      <p id="backups-error" class="error" hidden></p>
-      <p id="backups-last-error" class="error" hidden></p>
-
-      <form id="plan-form" class="card">
-        <h3>Automatic backups</h3>
-        <div class="row">
-          <label class="inline">How often
-            <select id="plan-every">
-              <option value="off">Off</option>
-              <option value="1h">Every hour</option>
-              <option value="3h">Every 3 hours</option>
-              <option value="6h">Every 6 hours</option>
-              <option value="12h">Every 12 hours</option>
-              <option value="daily">Once a day</option>
-            </select>
+    <!-- Import -->
+    <section id="view-import" class="view" hidden>
+      <div class="crumbs"><a href="#/">Servers</a> /</div>
+      <h1>Import from Crafty or another folder</h1>
+      <div id="import-box" class="card">
+        <p id="import-missing" class="muted" hidden></p>
+        <div id="import-ready">
+          <p class="muted small">Each server is copied into the panel with its worlds, settings, allowlist and operators. The original folder isn't changed, so you can go back to it.</p>
+          <label class="check">
+            <input id="import-stopped" type="checkbox">
+            <span>I've stopped these servers in the other panel and will leave them stopped. Two copies can't use the same port, and a server that's running while it's copied can give a damaged world.</span>
           </label>
-          <label class="inline" id="plan-at-label">at <input id="plan-at" type="time" required></label>
-          <label class="inline">Keep the last <input id="plan-keep" type="number" min="1" max="100" required class="port"></label>
-          <button type="submit" id="plan-save" class="primary" disabled>Save</button>
+          <p id="import-error" class="error" hidden></p>
+          <ul id="import-results" class="people"></ul>
+          <ul id="import-list" class="people imports"></ul>
         </div>
-        <p class="muted small" id="plan-help"></p>
-      </form>
-
-      <div class="card">
-        <div class="row between">
-          <h3>Backups</h3>
-          <button id="backup-now" class="primary">Back up now</button>
-        </div>
-        <p id="backups-summary" class="muted small"></p>
-        <ul id="backups" class="people"></ul>
       </div>
-    </div>
+    </section>
 
-    <div id="pane-console" role="tabpanel" hidden>
-      <pre id="console-log" class="console" aria-live="polite"></pre>
-      <form id="console-form" class="row">
-        <input id="console-input" placeholder="Type a command, e.g. say Dinner time!" autocomplete="off">
-        <button type="submit" class="primary">Send</button>
-      </form>
-      <p id="console-error" class="error" hidden></p>
-    </div>
-  </section>
-</main>
+    <!-- All backups -->
+    <section id="view-backups" class="view" hidden>
+      <h1>Backups</h1>
+      <p class="muted">Each server's backups, schedule and restore are on its Backups tab.</p>
+      <div id="backups-overview" class="server-table"></div>
+    </section>
+
+    <!-- Joining -->
+    <section id="view-joining" class="view narrow" hidden>
+      <h1>Joining from consoles</h1>
+      <div class="card">
+        <h2>At home, the easy way</h2>
+        <p>Open Minecraft, go to <b>Play → Friends</b>, and under <b>LAN Games</b> pick <b id="join-list-name"></b>. Then pick a server. A PS5 finds it this way with no other setup.</p>
+      </div>
+      <div class="card">
+        <h2>If it isn't there, or on an Xbox or Switch</h2>
+        <ol class="steps-list">
+          <li>Set the console's DNS to <b id="join-list-ip" class="mono"></b>.</li>
+          <li>Restart the console.</li>
+          <li>Open Minecraft, go to <b>Servers</b>, and join any featured server, such as The Hive.</li>
+          <li>You land in the menu of your servers. Pick one.</li>
+        </ol>
+      </div>
+      <div class="card">
+        <h2>Letting people in</h2>
+        <p class="muted">Players need to be on a server's allowlist. Anyone the menu sends to a server who isn't shows up under <b>Tried to join</b>, with an Allow button.</p>
+      </div>
+    </section>
+
+    <!-- Setup guide -->
+    <section id="view-guide" class="view narrow" hidden>
+      <section id="guide" class="card guide">
+        <div class="row between">
+          <h1>Setup guide <span id="guide-step-label" class="muted small"></span></h1>
+          <button type="button" id="guide-skip">Skip for now</button>
+        </div>
+        <ol class="steps" id="guide-steps">
+          <li data-step="1">Your gamertag</li>
+          <li data-step="2">Joining from consoles</li>
+          <li data-step="3">Your servers</li>
+          <li data-step="4">Checklist</li>
+        </ol>
+
+        <div class="guide-pane" data-step="1">
+          <p>Your Xbox gamertag goes on the allowlist and becomes an operator on every server you add, so you can always get in.</p>
+          <label>Gamertag
+            <input id="guide-gamertag" maxlength="32" autocomplete="off" placeholder="e.g. Kemikal Halo">
+          </label>
+          <label class="check" id="guide-everywhere-label">
+            <input id="guide-everywhere" type="checkbox" checked>
+            <span id="guide-everywhere-text">Also add me to the servers I already have</span>
+          </label>
+          <p id="guide-gamertag-msg" class="small" hidden></p>
+        </div>
+
+        <div class="guide-pane" data-step="2">
+          <p><b>At home, the easy way:</b> open Minecraft, go to <b>Play → Friends</b>, and under <b>LAN Games</b> pick <b id="guide-list-name"></b>. Then pick a server. A PS5 finds it this way with no other setup.</p>
+          <p><b>If it isn't there</b> (or on an Xbox or Switch): set the console's DNS to <b id="guide-list-ip"></b>, restart the console, open Minecraft, go to <b>Servers</b> and join any featured server, such as The Hive. You'll land in the menu of your servers.</p>
+          <p class="muted small">Players still need to be on a server's allowlist; anyone the menu sends in who isn't shows up under <b>Tried to join</b> on that server's Players tab, with an Allow button.</p>
+        </div>
+
+        <div class="guide-pane" data-step="3">
+          <p id="guide-servers-text"></p>
+          <div class="row">
+            <a class="button" href="#/import" id="guide-import" hidden>Import from Crafty</a>
+            <a class="button" href="#/add" id="guide-add" hidden>Add a server</a>
+          </div>
+        </div>
+
+        <div class="guide-pane" data-step="4">
+          <ul id="guide-checklist" class="checklist"></ul>
+        </div>
+
+        <div class="row guide-nav">
+          <button type="button" id="guide-back">Back</button>
+          <button type="button" id="guide-next" class="primary">Next</button>
+        </div>
+      </section>
+    </section>
+
+    <!-- Account -->
+    <section id="view-account" class="view narrow" hidden>
+      <h1>Signed in as <span id="account-name"></span></h1>
+
+      <section class="card">
+        <h2>Appearance</h2>
+        <p class="muted small">Saved for your account, so it follows you to your phone.</p>
+        <fieldset class="styles">
+          <legend>Style</legend>
+          <label class="style-card">
+            <input type="radio" name="style" value="control">
+            <span class="style-preview control" aria-hidden="true"><i></i><b></b><b></b><b></b></span>
+            <span class="style-name">Control Room</span>
+            <span class="muted small">Compact. Every server in one table with its version, players and backup.</span>
+          </label>
+          <label class="style-card">
+            <input type="radio" name="style" value="treehouse" disabled>
+            <span class="style-preview treehouse" aria-hidden="true"><b></b><b></b><b></b><b></b><b></b><b></b></span>
+            <span class="style-name">Treehouse</span>
+            <span class="muted small">Big tiles and buttons, plain words. Coming next.</span>
+          </label>
+        </fieldset>
+        <fieldset class="modes">
+          <legend>Light or dark</legend>
+          <div class="segmented" role="radiogroup" aria-label="Light or dark">
+            <label><input type="radio" name="mode" value="auto"><span>Match this device</span></label>
+            <label><input type="radio" name="mode" value="light"><span>Light</span></label>
+            <label><input type="radio" name="mode" value="dark"><span>Dark</span></label>
+          </div>
+        </fieldset>
+        <p id="prefs-error" class="error" hidden></p>
+      </section>
+
+      <section class="card">
+        <h2>Change password</h2>
+        <form id="password-form">
+          <p class="muted small">Other browsers are signed out when you change it.</p>
+          <div class="row">
+            <input id="pw-current" type="password" placeholder="Current password" autocomplete="current-password" required aria-label="Current password">
+            <input id="pw-new" type="password" minlength="8" placeholder="New password" autocomplete="new-password" required aria-label="New password">
+            <input id="pw-new2" type="password" minlength="8" placeholder="New password again" autocomplete="new-password" required aria-label="New password again">
+            <button type="submit" class="primary">Change</button>
+          </div>
+          <p id="password-msg" class="small" hidden></p>
+        </form>
+      </section>
+
+      <section class="card">
+        <h2>Signing out</h2>
+        <div class="row">
+          <button id="logout">Sign out</button>
+          <button id="logout-all">Sign out everywhere</button>
+          <a class="button" href="#/guide">Setup guide</a>
+        </div>
+      </section>
+      <p class="muted small" id="version-2"></p>
+    </section>
+
+    <!-- One server -->
+    <section id="view-server" class="view" hidden>
+      <div class="crumbs"><a href="#/">Servers</a> /</div>
+      <div class="server-head">
+        <div class="grow">
+          <h1 id="detail-name"></h1>
+          <p id="detail-facts" class="facts"></p>
+          <p id="detail-message" class="message" hidden></p>
+        </div>
+        <div id="detail-actions" class="row"></div>
+      </div>
+
+      <nav class="tabs" aria-label="Server sections">
+        <a id="tab-overview" href="#" data-tab="overview">Overview</a>
+        <a id="tab-players" href="#" data-tab="players">Players</a>
+        <a id="tab-settings" href="#" data-tab="settings">Settings</a>
+        <a id="tab-backups" href="#" data-tab="backups">Backups</a>
+        <a id="tab-console" href="#" data-tab="console">Console</a>
+      </nav>
+
+      <div id="pane-overview" hidden>
+        <div class="overview">
+          <div class="col">
+            <section class="card">
+              <div class="row between"><h2 id="ov-playing-title">Playing now</h2><a href="#" data-goto="players">Players</a></div>
+              <ul id="ov-online" class="people"></ul>
+            </section>
+            <section class="card console-card">
+              <div class="row between"><h2>Console</h2><a href="#" data-goto="console">Open full console</a></div>
+              <pre id="ov-console" class="console mini" aria-live="off"></pre>
+              <form id="ov-command" class="row">
+                <input id="ov-command-input" placeholder="Type a command, e.g. time set day" autocomplete="off" aria-label="Command">
+                <button type="submit">Send</button>
+                <button type="button" data-cmd="time set day">Make it day</button>
+                <button type="button" data-cmd="weather clear">Clear weather</button>
+              </form>
+            </section>
+          </div>
+          <div class="col">
+            <section class="card">
+              <h2>World</h2>
+              <dl id="ov-world" class="facts-grid"></dl>
+              <a href="#" data-goto="settings">Change settings</a>
+            </section>
+            <section class="card">
+              <h2>Who can join</h2>
+              <p id="ov-join" class="muted"></p>
+              <a href="#" data-goto="players">Manage players</a>
+            </section>
+            <section class="card">
+              <div class="row between"><h2>Backups</h2><button type="button" id="ov-backup-now">Back up now</button></div>
+              <p id="ov-backups" class="muted"></p>
+              <a href="#" data-goto="backups">Restore or download</a>
+            </section>
+          </div>
+        </div>
+      </div>
+
+      <div id="pane-settings" hidden>
+        <p id="settings-error" class="error" hidden></p>
+        <div id="settings-saved" class="card notice" hidden>
+          <p id="settings-saved-text"></p>
+          <div class="row">
+            <button id="settings-restart" class="primary" hidden>Restart now</button>
+            <button id="settings-saved-close">OK</button>
+          </div>
+        </div>
+
+        <form id="rename-form" class="card">
+          <h3>Name in the panel and console menu</h3>
+          <div class="row">
+            <input id="rename-name" maxlength="40" autocomplete="off" aria-label="Server name">
+            <button type="submit">Rename</button>
+          </div>
+        </form>
+
+        <form id="settings-form">
+          <div id="settings-groups"></div>
+          <div id="settings-bar" class="savebar" hidden>
+            <span id="settings-dirty"></span>
+            <button type="button" id="settings-discard">Discard</button>
+            <button type="submit" class="primary">Save</button>
+          </div>
+        </form>
+
+        <details id="raw-box" class="card">
+          <summary>Advanced: edit server.properties directly</summary>
+          <p class="muted small">For settings that aren't above. The port and LAN settings are put back as the panel needs them. Changes apply after a restart.</p>
+          <textarea id="raw-text" spellcheck="false" rows="18" aria-label="server.properties"></textarea>
+          <div class="row">
+            <button id="raw-save" type="button" class="primary">Save file</button>
+            <button id="raw-reload" type="button">Reload</button>
+          </div>
+        </details>
+      </div>
+
+      <div id="pane-players" hidden>
+        <p id="players-error" class="error" hidden></p>
+
+        <div id="attempts-box" class="card attention" hidden>
+          <h3>Tried to join</h3>
+          <p class="muted small">They picked this server from the console menu but aren't on the allowlist.</p>
+          <ul id="attempts" class="people"></ul>
+        </div>
+
+        <div class="card">
+          <h3>Online now</h3>
+          <ul id="online" class="people"></ul>
+          <form id="say-form" class="row">
+            <input id="say-text" maxlength="200" placeholder="Message everyone" autocomplete="off" aria-label="Message everyone">
+            <button type="submit">Send</button>
+          </form>
+        </div>
+
+        <div class="card">
+          <div class="row between">
+            <h3>Allowlist</h3>
+            <label class="switch"><input id="allow-enabled" type="checkbox"> <span id="allow-enabled-label">On</span></label>
+          </div>
+          <p id="allow-help" class="muted small"></p>
+          <form id="allow-form" class="row">
+            <input id="allow-name" maxlength="32" placeholder="Gamertag" autocomplete="off" aria-label="Gamertag to allow">
+            <button type="submit" class="primary">Add</button>
+          </form>
+          <ul id="allowlist" class="people"></ul>
+        </div>
+
+        <div class="card">
+          <h3>Operators</h3>
+          <p class="muted small">Operators can use commands and change game settings in the world.</p>
+          <form id="op-form" class="row">
+            <input id="op-name" maxlength="32" placeholder="Gamertag" autocomplete="off" aria-label="Gamertag to make operator">
+            <button type="submit">Make operator</button>
+          </form>
+          <ul id="operators" class="people"></ul>
+        </div>
+      </div>
+
+      <div id="pane-backups" hidden>
+        <p id="backups-error" class="error" hidden></p>
+        <p id="backups-last-error" class="error" hidden></p>
+
+        <form id="plan-form" class="card">
+          <h3>Automatic backups</h3>
+          <div class="row">
+            <label class="inline">How often
+              <select id="plan-every">
+                <option value="off">Off</option>
+                <option value="1h">Every hour</option>
+                <option value="3h">Every 3 hours</option>
+                <option value="6h">Every 6 hours</option>
+                <option value="12h">Every 12 hours</option>
+                <option value="daily">Once a day</option>
+              </select>
+            </label>
+            <label class="inline" id="plan-at-label">at <input id="plan-at" type="time" required></label>
+            <label class="inline">Keep the last <input id="plan-keep" type="number" min="1" max="100" required class="port"></label>
+            <button type="submit" id="plan-save" class="primary" disabled>Save</button>
+          </div>
+          <p class="muted small" id="plan-help"></p>
+        </form>
+
+        <div class="card">
+          <div class="row between">
+            <h3>Backups</h3>
+            <button id="backup-now" class="primary">Back up now</button>
+          </div>
+          <p id="backups-summary" class="muted small"></p>
+          <ul id="backups" class="people"></ul>
+        </div>
+      </div>
+
+      <div id="pane-console" hidden>
+        <pre id="console-log" class="console" aria-live="polite"></pre>
+        <form id="console-form" class="row">
+          <input id="console-input" placeholder="Type a command, e.g. say Dinner time!" autocomplete="off" aria-label="Command">
+          <button type="submit" class="primary">Send</button>
+        </form>
+        <p id="console-error" class="error" hidden></p>
+      </div>
+    </section>
+  </main>
+
+  <nav class="tabbar" aria-label="Main">
+    <a href="#/" data-nav="servers"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="6" rx="1.5"></rect><rect x="3" y="14" width="18" height="6" rx="1.5"></rect></svg>Servers</a>
+    <a href="#/backups" data-nav="backups"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="5" rx="1"></rect><path d="M5 9v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9M10 13h4"></path></svg>Backups</a>
+    <a href="#/joining" data-nav="joining"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18"></path></svg>Joining</a>
+    <a href="#/account" data-nav="account"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c1-4 4-6 8-6s7 2 8 6"></path></svg><span id="tab-user">Account</span></a>
+  </nav>
+</div>
 <script src="app.js"></script>
 </body>
 </html>
