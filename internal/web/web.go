@@ -134,7 +134,13 @@ func hostOr(ip string) string {
 func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
 	sub, _ := fs.Sub(static, "static")
-	mux.Handle("GET /", http.FileServerFS(sub))
+	files := http.FileServerFS(sub)
+	mux.Handle("GET /", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// The page is tiny and changes with every update, so browsers must
+		// check for a new copy each time rather than show a stale one.
+		w.Header().Set("Cache-Control", "no-cache")
+		files.ServeHTTP(w, r)
+	}))
 	mux.HandleFunc("GET /api/info", s.info)
 	mux.HandleFunc("GET /api/servers", s.listServers)
 	mux.HandleFunc("POST /api/servers", s.createServer)

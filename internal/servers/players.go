@@ -165,7 +165,14 @@ func (s *Server) allowlistEnabled() bool {
 func (s *Server) Players() (PlayersView, error) {
 	s.filesMu.Lock()
 	defer s.filesMu.Unlock()
-	v := PlayersView{AllowlistEnabled: s.allowlistEnabled()}
+	// Empty lists, never nil: the page expects [] rather than null.
+	v := PlayersView{
+		AllowlistEnabled: s.allowlistEnabled(),
+		Online:           []Player{},
+		Allowlist:        []ListedName{},
+		Operators:        []ListedName{},
+		Attempts:         []JoinAttempt{},
+	}
 
 	allow, err := readJSONList[allowEntry](s.allowlistPath())
 	if err != nil {
@@ -205,7 +212,9 @@ func (s *Server) Players() (PlayersView, error) {
 	}
 
 	st := s.Status()
-	v.Online = st.Players
+	if st.Players != nil {
+		v.Online = st.Players
+	}
 	v.Running = st.State == StateRunning
 	s.mu.Lock()
 	for _, n := range s.meta.PendingOps {

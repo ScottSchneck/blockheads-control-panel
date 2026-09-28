@@ -81,3 +81,42 @@ func TestSignInAndCrossSiteProtection(t *testing.T) {
 		t.Errorf("unknown server: %d", c)
 	}
 }
+
+func TestPlayersJSONHasNoNullLists(t *testing.T) {
+	s, dir := newTestServer(t)
+	// A server folder with the files Bedrock creates, but nobody in them.
+	sdir := filepath.Join(dir, "servers", "empty")
+	os.MkdirAll(sdir, 0o755)
+	os.WriteFile(filepath.Join(sdir, ".blockheads.json"), []byte(`{"id":"empty","name":"Empty","type":"bedrock","port":19134,"portV6":19135}`), 0o644)
+	os.WriteFile(filepath.Join(sdir, "bedrock_server"), []byte("x"), 0o755)
+	os.WriteFile(filepath.Join(sdir, "server.properties"), []byte("allow-list=true\n"), 0o644)
+	os.WriteFile(filepath.Join(sdir, "allowlist.json"), []byte("[]"), 0o644)
+	os.WriteFile(filepath.Join(sdir, "permissions.json"), []byte("[]"), 0o644)
+	if err := s.mgr.Load(); err != nil {
+		t.Fatal(err)
+	}
+	r := httptest.NewRequest("GET", "/api/servers/empty/players", nil)
+	r.SetBasicAuth("x", s.password)
+	w := httptest.NewRecorder()
+	s.routes().ServeHTTP(w, r)
+	if w.Code != 200 {
+		t.Fatalf("status %d: %s", w.Code, w.Body)
+	}
+	if strings.Contains(w.Body.String(), "null") {
+		t.Errorf("lists must be [] not null: %s", w.Body)
+	}
+	if !strings.Contains(w.Body.String(), `"allowlistEnabled":true`) {
+		t.Errorf("allowlist state: %s", w.Body)
+	}
+}
+
+func TestPageIsNotCached(t *testing.T) {
+	s, _ := newTestServer(t)
+	r := httptest.NewRequest("GET", "/app.js", nil)
+	r.SetBasicAuth("x", s.password)
+	w := httptest.NewRecorder()
+	s.routes().ServeHTTP(w, r)
+	if got := w.Header().Get("Cache-Control"); got != "no-cache" {
+		t.Errorf("Cache-Control %q", got)
+	}
+}

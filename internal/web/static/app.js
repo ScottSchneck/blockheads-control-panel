@@ -166,6 +166,7 @@ function ago(iso) {
 }
 
 function renderPlayers(v) {
+  for (const k of ["online", "allowlist", "operators", "attempts"]) v[k] = v[k] || [];
   const ops = new Set(v.operators.filter((o) => !o.pending).map((o) => o.name.toLowerCase()));
   const listed = new Set(v.allowlist.map((a) => a.name.toLowerCase()));
   const enc = encodeURIComponent;
