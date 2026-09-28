@@ -69,6 +69,7 @@ function renderServer(s) {
       el("button", { onclick: action(s.id, "restart"), disabled: !live || busy }, "Restart"),
       el("button", { onclick: confirmUpdate(s), disabled: s.state === "installing" || s.state === "updating" }, "Update"),
       el("button", { onclick: () => openDetail(s, "players") }, "Players"),
+      el("button", { onclick: () => openDetail(s, "settings") }, "Settings"),
       el("button", { onclick: () => openDetail(s, "console") }, "Console")));
 }
 
@@ -97,7 +98,11 @@ async function refresh() {
 // ---- detail: tabs ----
 
 function openDetail(s, which) {
-  if (selected !== s.id) closeConsole();
+  if (selected !== s.id) {
+    if (settingsDirty() && !confirm("Leave without saving your settings changes?")) return;
+    closeConsole();
+    resetSettings();
+  }
   selected = s.id;
   $("detail-name").textContent = s.name;
   $("detail").hidden = false;
@@ -107,11 +112,13 @@ function openDetail(s, which) {
 
 function showTab(which) {
   tab = which;
-  for (const t of ["players", "console"]) {
+  for (const t of ["players", "settings", "console"]) {
     $("tab-" + t).setAttribute("aria-selected", String(t === which));
     $("pane-" + t).hidden = t !== which;
   }
-  if (which === "console") openConsole(); else loadPlayers();
+  if (which === "console") openConsole();
+  else if (which === "settings") { if (!settingsView || !settingsDirty()) loadSettings(); }
+  else loadPlayers();
 }
 
 for (const b of document.querySelectorAll(".tabs button")) {
@@ -119,6 +126,8 @@ for (const b of document.querySelectorAll(".tabs button")) {
 }
 
 $("detail-close").addEventListener("click", () => {
+  if (settingsDirty() && !confirm("Close without saving your settings changes?")) return;
+  resetSettings();
   closeConsole();
   selected = null;
   $("detail").hidden = true;
@@ -241,6 +250,189 @@ $("allow-enabled").addEventListener("change", (ev) => {
   }
   playersCall(() => post(sid() + "/allowlist-enabled", { enabled }));
 });
+
+// ---- settings tab ----
+
+let settingsView = null; // last loaded settings
+let settingsFor = null;  // server ID settingsView and edits belong to
+let rawFor = null;       // server ID the raw editor text belongs to
+let savedFor = null;     // server ID the "Restart now" notice belongs to
+const edits = {};        // key -> new value, for unsaved changes
+
+function settingsDirty() { return Object.keys(edits).length > 0; }
+
+// resetSettings forgets everything the Settings tab holds, so nothing from
+// one server can be saved to another.
+function resetSettings() {
+  for (const k of Object.keys(edits)) delete edits[k];
+  settingsView = settingsFor = rawFor = savedFor = null;
+  $("settings-groups").replaceChildren();
+  $("settings-bar").hidden = true;
+  $("settings-saved").hidden = true;
+  $("raw-box").open = false;
+  $("raw-text").value = "";
+  showSettingsError(null);
+}
+
+function showSettingsError(err) {
+  $("settings-error").textContent = err ? err.message : "";
+  $("settings-error").hidden = !err;
+}
+
+async function loadSettings() {
+  if (!selected) return;
+  const id = selected;
+  try {
+    const v = await api(sid() + "/settings");
+    if (id !== selected) return; // switched servers while loading
+    settingsView = v;
+    settingsFor = id;
+    for (const k of Object.keys(edits)) delete edits[k];
+    $("rename-name").value = settingsView.name;
+    renderSettings();
+    showSettingsError(null);
+  } catch (err) { showSettingsError(err); }
+}
+
+function current(f) { return f.key in edits ? edits[f.key] : f.value; }
+
+function setEdit(f, value, redraw = true) {
+  if (value === f.value) delete edits[f.key]; else edits[f.key] = value;
+  if (redraw) renderSettings(); else updateSaveBar();
+}
+
+function updateSaveBar() {
+  const n = Object.keys(edits).length;
+  $("settings-bar").hidden = n === 0;
+  $("settings-dirty").textContent = `${n} unsaved change${n === 1 ? "" : "s"}`;
+}
+
+function control(f) {
+  const val = current(f);
+  switch (f.type) {
+    case "select": {
+      const options = f.options.map((o) => el("option", { value: o.value, selected: o.value === val }, o.label));
+      if (!f.options.some((o) => o.value === val)) {
+        // The file has a value that isn't one of the usual choices: show it
+        // as it is rather than pretending it's the first choice.
+        options.unshift(el("option", { value: val, selected: true }, `${val || "(not set)"} (as in the file)`));
+      }
+      return el("select", { "aria-label": f.label, onchange: (e) => setEdit(f, e.target.value) }, ...options);
+    }
+    case "bool": {
+      const odd = val !== "true" && val !== "false";
+      return el("label", { class: "switch" },
+        el("input", { type: "checkbox", checked: val.toLowerCase() === "true", onchange: (e) => setEdit(f, e.target.checked ? "true" : "false") }),
+        el("span", {}, odd ? `${val || "(not set)"} (as in the file)` : (val === "true" ? "On" : "Off")));
+    }
+    case "int":
+      return el("input", { type: "number", min: f.min, max: f.max, value: val, "aria-label": f.label,
+        oninput: (e) => setEdit(f, String(e.target.value).trim(), false),
+        onchange: (e) => setEdit(f, String(e.target.value).trim()) });
+    case "text":
+      return el("input", { type: "text", maxlength: f.max || 64, value: val, "aria-label": f.label,
+        oninput: (e) => setEdit(f, e.target.value, false),
+        onchange: (e) => setEdit(f, e.target.value) });
+    default: {
+      let shown = val || "(not set)";
+      if (f.key === "allow-list") shown = val === "true" ? "On" : "Off";
+      return el("span", { class: "ro" }, shown);
+    }
+  }
+}
+
+function renderSettings() {
+  const v = settingsView;
+  if (!v) return;
+  $("settings-groups").replaceChildren(...v.groups.map((g) => el("div", { class: "card" },
+    el("h3", {}, g.title),
+    ...g.fields.map((f) => {
+      const dirty = f.key in edits;
+      const warn = dirty && f.warning && (f.warnWhen === "*" || f.warnWhen === edits[f.key]);
+      return el("div", { class: "field" + (dirty ? " dirty" : "") },
+        el("div", { class: "top" }, el("span", { class: "label" }, f.label), control(f)),
+        f.help ? el("div", { class: "help" }, f.help) : null,
+        f.link === "players" ? el("div", { class: "help" }, el("a", { href: "#", onclick: (e) => { e.preventDefault(); showTab("players"); } }, "Open the Players tab")) : null,
+        dirty ? el("div", { class: "changed" }, `Changed from ${f.value || "(not set)"}`) : null,
+        warn ? el("div", { class: "warn" }, "⚠ " + f.warning) : null);
+    }))));
+  updateSaveBar();
+}
+
+$("settings-discard").addEventListener("click", () => {
+  for (const k of Object.keys(edits)) delete edits[k];
+  renderSettings();
+});
+
+$("settings-form").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  if (!settingsDirty()) return;
+  if (settingsFor !== selected) { resetSettings(); loadSettings(); return; }
+  const id = settingsFor;
+  try {
+    const res = await post(`/api/servers/${encodeURIComponent(id)}/settings`, { values: { ...edits } });
+    if (id !== selected) return;
+    savedFor = id;
+    settingsView = res.settings;
+    for (const k of Object.keys(edits)) delete edits[k];
+    renderSettings();
+    showSettingsError(null);
+    const n = res.changes.length;
+    const running = settingsView.running;
+    $("settings-saved-text").textContent = n === 0 ? "Nothing changed."
+      : `Saved ${n} setting${n === 1 ? "" : "s"}.` + (running ? " Restart the server to apply them. Players will be disconnected briefly." : " They'll apply when the server starts.");
+    $("settings-restart").hidden = !(running && n > 0);
+    $("settings-saved").hidden = false;
+    $("settings-saved").scrollIntoView({ behavior: "smooth", block: "nearest" });
+  } catch (err) { showSettingsError(err); }
+});
+
+$("settings-saved-close").addEventListener("click", () => { $("settings-saved").hidden = true; });
+$("settings-restart").addEventListener("click", async () => {
+  $("settings-saved").hidden = true;
+  if (!savedFor || savedFor !== selected) return;
+  try { await post(`/api/servers/${encodeURIComponent(savedFor)}/restart`); } catch (err) { showSettingsError(err); }
+  refresh();
+});
+
+$("rename-form").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  try {
+    await post(sid() + "/rename", { name: $("rename-name").value });
+    showSettingsError(null);
+    refresh();
+  } catch (err) { showSettingsError(err); }
+});
+
+async function loadRaw() {
+  const id = selected;
+  try {
+    const res = await api(sid() + "/properties");
+    if (id !== selected) return;
+    $("raw-text").value = res.text;
+    rawFor = id;
+  } catch (err) { showSettingsError(err); }
+}
+$("raw-box").addEventListener("toggle", () => { if ($("raw-box").open) loadRaw(); });
+$("raw-reload").addEventListener("click", loadRaw);
+$("raw-save").addEventListener("click", async () => {
+  if (!rawFor || rawFor !== selected) { loadRaw(); return; } // text belongs to another server
+  if (settingsDirty() && !confirm("You have unsaved changes above. Saving the file discards them. Continue?")) return;
+  const id = rawFor;
+  try {
+    const res = await api(`/api/servers/${encodeURIComponent(id)}/properties`, { method: "PUT", body: JSON.stringify({ text: $("raw-text").value }) });
+    if (id !== selected) return;
+    $("raw-text").value = res.text;
+    await loadSettings();
+    savedFor = id;
+    const running = settingsView && settingsView.running;
+    $("settings-saved-text").textContent = "server.properties saved." + (running ? " Restart the server to apply it." : "");
+    $("settings-restart").hidden = !running;
+    $("settings-saved").hidden = false;
+  } catch (err) { showSettingsError(err); }
+});
+
+window.addEventListener("beforeunload", (ev) => { if (settingsDirty()) { ev.preventDefault(); ev.returnValue = ""; } });
 
 // ---- console tab ----
 

@@ -457,7 +457,7 @@ func (s *Server) removePendingOp(name string) bool {
 // their Xbox ID and applies a queued operator.
 func (s *Server) onJoin(name, xuid string) {
 	// The game server checks Xbox sign-in unless online-mode was turned off.
-	s.m.people.seen(name, xuid, s.meta.Name, s.checksSignIn())
+	s.m.people.seen(name, xuid, s.displayName(), s.checksSignIn())
 	s.dismissAttempt(name)
 	if xuid == "" {
 		return

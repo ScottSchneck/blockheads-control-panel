@@ -208,10 +208,12 @@ func (m *Manager) all() []*Server {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	out := make([]*Server, 0, len(m.servers))
+	names := map[*Server]string{}
 	for _, s := range m.servers {
 		out = append(out, s)
+		names[s] = strings.ToLower(s.displayName())
 	}
-	sort.Slice(out, func(i, j int) bool { return strings.ToLower(out[i].meta.Name) < strings.ToLower(out[j].meta.Name) })
+	sort.Slice(out, func(i, j int) bool { return names[out[i]] < names[out[j]] })
 	return out
 }
 
@@ -261,7 +263,7 @@ func (m *Manager) Create(name string, preview bool) (Status, error) {
 	}
 	m.mu.Lock()
 	for _, s := range m.servers {
-		if strings.EqualFold(s.meta.Name, name) {
+		if strings.EqualFold(s.displayName(), name) {
 			m.mu.Unlock()
 			return Status{}, fmt.Errorf("there's already a server called %q", name)
 		}

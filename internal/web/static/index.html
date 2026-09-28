@@ -48,7 +48,46 @@
     </div>
     <div class="tabs" role="tablist">
       <button role="tab" id="tab-players" data-tab="players">Players</button>
+      <button role="tab" id="tab-settings" data-tab="settings">Settings</button>
       <button role="tab" id="tab-console" data-tab="console">Console</button>
+    </div>
+
+    <div id="pane-settings" role="tabpanel" hidden>
+      <p id="settings-error" class="error" hidden></p>
+      <div id="settings-saved" class="card notice" hidden>
+        <p id="settings-saved-text"></p>
+        <div class="row">
+          <button id="settings-restart" class="primary" hidden>Restart now</button>
+          <button id="settings-saved-close">OK</button>
+        </div>
+      </div>
+
+      <form id="rename-form" class="card">
+        <h3>Name in the panel and console menu</h3>
+        <div class="row">
+          <input id="rename-name" maxlength="40" autocomplete="off">
+          <button type="submit">Rename</button>
+        </div>
+      </form>
+
+      <form id="settings-form">
+        <div id="settings-groups"></div>
+        <div id="settings-bar" class="savebar" hidden>
+          <span id="settings-dirty"></span>
+          <button type="button" id="settings-discard">Discard</button>
+          <button type="submit" class="primary">Save</button>
+        </div>
+      </form>
+
+      <details id="raw-box" class="card">
+        <summary>Advanced: edit server.properties directly</summary>
+        <p class="muted small">For settings that aren't above. The port and LAN settings are put back as the panel needs them. Changes apply after a restart.</p>
+        <textarea id="raw-text" spellcheck="false" rows="18"></textarea>
+        <div class="row">
+          <button id="raw-save" type="button" class="primary">Save file</button>
+          <button id="raw-reload" type="button">Reload</button>
+        </div>
+      </details>
     </div>
 
     <div id="pane-players" role="tabpanel">

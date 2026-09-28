@@ -52,14 +52,41 @@ func (p *properties) get(key string) (string, bool) {
 }
 
 // set changes a key's value, adding the key at the end if it's missing.
+// set changes a key's value, adding the key at the end if it's missing. If
+// the key appears more than once, the extra lines are removed, so there's
+// no doubt which value Bedrock uses.
 func (p *properties) set(key, value string) {
-	for i, l := range p.lines {
+	found := false
+	kept := p.lines[:0]
+	for _, l := range p.lines {
 		if k, _, ok := splitProperty(l); ok && k == key {
-			p.lines[i] = key + "=" + value
-			return
+			if found {
+				continue
+			}
+			found = true
+			l = key + "=" + value
+		}
+		kept = append(kept, l)
+	}
+	p.lines = kept
+	if !found {
+		p.lines = append(p.lines, key+"="+value)
+	}
+}
+
+// duplicates returns keys that appear more than once.
+func (p *properties) duplicates() []string {
+	seen := map[string]int{}
+	var dups []string
+	for _, l := range p.lines {
+		if k, _, ok := splitProperty(l); ok {
+			seen[k]++
+			if seen[k] == 2 {
+				dups = append(dups, k)
+			}
 		}
 	}
-	p.lines = append(p.lines, key+"="+value)
+	return dups
 }
 
 // setIfPresent changes a key only if the file already has it, for settings

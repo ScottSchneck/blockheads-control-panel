@@ -98,8 +98,16 @@ func newServer(m *Manager, meta Meta) *Server {
 	return &Server{m: m, meta: meta, state: StateStopped, players: map[string]Player{}, subs: map[chan string]struct{}{}}
 }
 
-// ID returns the server's ID.
+// ID returns the server's ID (it never changes).
 func (s *Server) ID() string { return s.meta.ID }
+
+// displayName returns the server's name in the panel. The lock order is
+// Manager.mu before Server.mu, so this may be called with m.mu held.
+func (s *Server) displayName() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.meta.Name
+}
 
 func (s *Server) dir() string    { return filepath.Join(s.m.serversDir(), s.meta.ID) }
 func (s *Server) binary() string { return filepath.Join(s.dir(), "bedrock_server") }

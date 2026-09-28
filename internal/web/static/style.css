@@ -60,3 +60,29 @@ h3 { font-size: 15px; margin: 0 0 6px; }
 .card.attention { border-color: var(--warn); }
 label.switch { display: flex; flex-direction: row; align-items: center; gap: 6px; margin: 0; font-size: 14px; }
 form.row { margin-top: 8px; }
+.field { padding: 10px 0; border-top: 1px solid var(--border); display: grid; gap: 4px; }
+.field:first-of-type { border-top: none; }
+.field .top { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.field .label { font-weight: 600; font-size: 14px; }
+.field .help { color: var(--muted); font-size: 13px; }
+.field .warn { color: var(--warn); font-size: 13px; }
+.field .changed { color: var(--primary); font-size: 12px; font-weight: 600; }
+.field select, .field input[type=number], .field input[type=text] { font: inherit; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); min-width: 200px; max-width: 100%; flex: none; }
+.field input[type=number] { min-width: 110px; width: 110px; }
+.field .ro { color: var(--muted); font-family: ui-monospace, Menlo, monospace; font-size: 13px; }
+.field.dirty { box-shadow: inset 3px 0 0 var(--primary); padding-left: 10px; }
+.savebar { position: sticky; bottom: 0; display: flex; gap: 8px; align-items: center; justify-content: flex-end; padding: 10px 14px; margin-top: 8px; background: var(--card); border: 1px solid var(--primary); border-radius: 10px; }
+.savebar span { margin-right: auto; font-size: 14px; }
+.card.notice { border-color: var(--primary); }
+.card.notice p { margin: 0 0 8px; }
+details.card summary { cursor: pointer; font-weight: 600; }
+textarea { width: 100%; font: 12.5px/1.45 ui-monospace, Menlo, monospace; background: var(--console-bg); color: var(--console-text); border: 1px solid var(--border); border-radius: 8px; padding: 10px; margin: 8px 0; resize: vertical; }
+.field select, .field input[type=text] { max-width: 100%; }
+main, section, .card, form { min-width: 0; max-width: 100%; }
+@media (max-width: 600px) {
+  .field .top { flex-direction: column; align-items: stretch; }
+  .field .top .label { order: 0; }
+  .field select, .field input[type=text] { min-width: 0; width: 100%; }
+  .field label.switch { align-self: flex-start; }
+  .savebar { flex-wrap: wrap; }
+}

@@ -35,7 +35,12 @@ func (s *Server) withServer(h func(http.ResponseWriter, *http.Request, *servers.
 
 // readBody decodes a small JSON request body.
 func readBody(w http.ResponseWriter, r *http.Request, v any) bool {
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(v); err != nil {
+	return readBodyLimit(w, r, v, 16<<10)
+}
+
+// readBodyLimit decodes a JSON request body of up to limit bytes.
+func readBodyLimit(w http.ResponseWriter, r *http.Request, v any, limit int64) bool {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, limit)).Decode(v); err != nil {
 		writeError(w, http.StatusBadRequest, errors.New("bad request"))
 		return false
 	}

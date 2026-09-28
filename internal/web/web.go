@@ -147,6 +147,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/servers/{id}/{action}", s.serverAction)
 	mux.HandleFunc("GET /api/servers/{id}/console", s.console)
 	s.playerRoutes(mux)
+	s.settingsRoutes(mux)
 	return s.secure(mux)
 }
 

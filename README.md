@@ -27,6 +27,11 @@ Switch players can join without extra apps.
   they aren't on shows up with an **Allow** button. Changes apply without a
   restart. Put your gamertag in **Add server** and you're added to the
   allowlist and made an operator on every new server.
+- **Settings page** for each server: game mode, difficulty, cheats, what new
+  players can do, max players, chat, skins, view distance and more, as
+  labelled controls with a line of explanation each. Only the lines you change
+  are rewritten, and the panel offers to restart the server to apply them.
+  An advanced editor opens the whole `server.properties` for everything else.
 - **A first web page** at `https://<container IP>:8443`, for desktop and phone.
   It's bare-bones for now; the full design comes next.
 - **Built-in DNS.** It answers the console "featured server" names (The Hive,
@@ -49,7 +54,7 @@ Switch players can join without extra apps.
 
 ## Coming in phase 1
 
-A settings UI instead of editing `server.properties`, scheduled backups and restore, a setup wizard with owner and user accounts,
+Scheduled backups and restore, a setup wizard with owner and user accounts,
 the full web design, and importing servers from Crafty Controller. Java,
 Hytale and more follow in later phases.
 
