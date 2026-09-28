@@ -31,6 +31,8 @@ no Xbox account. Never use that setting outside testing.
 | Path | What's there |
 | --- | --- |
 | `cmd/blockheads` | The main program |
+| `internal/servers` | Server manager: install, run, update and back up game servers |
+| `internal/web` | Web panel: API, sign-in and the page (`static/`) |
 | `internal/serverlist` | Built-in DNS and the console server list |
 | `tools/fakeconsole` | Test client that pretends to be a console |
 | `docs/` | Design and test notes |

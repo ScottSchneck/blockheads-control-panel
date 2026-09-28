@@ -1,0 +1,703 @@
+package servers
+
+import (
+	"bufio"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
+	"sort"
+	"strings"
+	"sync"
+	"syscall"
+	"time"
+)
+
+// State is what a server is doing.
+type State string
+
+const (
+	StateInstalling State = "installing"
+	StateUpdating   State = "updating"
+	StateStopped    State = "stopped"
+	StateStarting   State = "starting"
+	StateRunning    State = "running"
+	StateStopping   State = "stopping"
+	StateCrashed    State = "crashed" // gave up restarting
+	StateError      State = "error"   // can't start until fixed, see Message
+)
+
+// Player is someone on a server.
+type Player struct {
+	Name  string    `json:"name"`
+	XUID  string    `json:"xuid,omitempty"`
+	Since time.Time `json:"since"`
+}
+
+// Status is a snapshot of a server for the web page.
+type Status struct {
+	ID        string   `json:"id"`
+	Name      string   `json:"name"`
+	Type      string   `json:"type"`
+	Version   string   `json:"version"`
+	Port      int      `json:"port"`
+	State     State    `json:"state"`
+	Message   string   `json:"message,omitempty"`
+	Players   []Player `json:"players"`
+	AutoStart bool     `json:"autoStart"`
+}
+
+const (
+	consoleLines  = 2000
+	crashWindow   = 10 * time.Minute
+	maxCrashes    = 4 // in crashWindow before giving up
+	updateBackups = 5
+	commandQueue  = 64
+)
+
+// crashBackoff is the first wait before restarting a crashed server; tests
+// shorten it.
+var crashBackoff = 5 * time.Second
+
+// Server is one game server and, when running, its process.
+//
+// Nothing that can block (pipe writes, file copies, downloads) happens while
+// mu is held: the web page reads Status under mu every couple of seconds, and
+// a stuck game server must never freeze the panel.
+type Server struct {
+	m *Manager
+
+	mu       sync.Mutex
+	meta     Meta
+	state    State
+	message  string // what's happening now, e.g. "Restarting after a crash"
+	notice   string // stays until the next successful update, e.g. "Update failed: …"
+	players  map[string]Player
+	busy     bool // installing or updating
+	console  []string
+	subs     map[chan string]struct{}
+	cmd      *exec.Cmd
+	commands chan string // lines for the running process's stdin; closed when it exits
+	exited   chan struct{}
+	stopping bool // the current process was asked to stop
+	crashes  []time.Time
+	restart  *time.Timer
+
+	saveMu sync.Mutex // orders writes of .blockheads.json
+}
+
+func newServer(m *Manager, meta Meta) *Server {
+	return &Server{m: m, meta: meta, state: StateStopped, players: map[string]Player{}, subs: map[chan string]struct{}{}}
+}
+
+// ID returns the server's ID.
+func (s *Server) ID() string { return s.meta.ID }
+
+func (s *Server) dir() string    { return filepath.Join(s.m.serversDir(), s.meta.ID) }
+func (s *Server) binary() string { return filepath.Join(s.dir(), "bedrock_server") }
+
+// incompleteMarker exists while an update is known to have been applied only
+// partly. The server won't start until it's gone: a successful update removes
+// it, or the owner deletes it after restoring the backup.
+func (s *Server) incompleteMarker() string { return filepath.Join(s.dir(), ".update-incomplete") }
+
+func (s *Server) isBusy() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.busy
+}
+
+// Status returns a snapshot.
+func (s *Server) Status() Status {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	st := Status{
+		ID: s.meta.ID, Name: s.meta.Name, Type: s.meta.Type, Version: s.meta.Version,
+		Port: s.meta.Port, State: s.state, Message: s.message, AutoStart: s.meta.AutoStart,
+		Players: []Player{},
+	}
+	for _, p := range s.players {
+		st.Players = append(st.Players, p)
+	}
+	sort.Slice(st.Players, func(i, j int) bool { return st.Players[i].Since.Before(st.Players[j].Since) })
+	if st.Message == "" {
+		st.Message = s.notice
+	}
+	return st
+}
+
+// saveMeta writes the server's details. Writes are serialised and each one
+// takes its snapshot while holding saveMu, so the last write always carries
+// the latest details. It must not be called with mu held; use saveMetaLater.
+func (s *Server) saveMeta() error {
+	s.saveMu.Lock()
+	defer s.saveMu.Unlock()
+	s.mu.Lock()
+	b, _ := json.MarshalIndent(s.meta, "", "  ")
+	s.mu.Unlock()
+	path := filepath.Join(s.dir(), metaFile)
+	if err := os.WriteFile(path+".tmp", b, 0o644); err != nil {
+		return err
+	}
+	return os.Rename(path+".tmp", path)
+}
+
+// saveMetaLater saves the details from a new goroutine, for callers that
+// hold mu.
+func (s *Server) saveMetaLater() {
+	go func() {
+		if err := s.saveMeta(); err != nil {
+			s.m.log.Warn("could not save server details", "id", s.meta.ID, "error", err)
+		}
+	}()
+}
+
+// ---- console ----
+
+// say adds a panel message to the console.
+func (s *Server) say(msg string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.addLineLocked("[Panel] " + msg)
+}
+
+func (s *Server) addLineLocked(line string) {
+	s.console = append(s.console, line)
+	if len(s.console) > consoleLines {
+		s.console = append([]string(nil), s.console[len(s.console)-consoleLines:]...)
+	}
+	for ch := range s.subs {
+		select {
+		case ch <- line:
+		default: // a slow viewer misses lines rather than holding up the server
+		}
+	}
+}
+
+// Subscribe returns the console so far and a channel of new lines. Call the
+// returned function to stop.
+func (s *Server) Subscribe() ([]string, <-chan string, func()) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ch := make(chan string, 256)
+	s.subs[ch] = struct{}{}
+	backlog := append([]string(nil), s.console...)
+	return backlog, ch, func() {
+		s.mu.Lock()
+		delete(s.subs, ch)
+		s.mu.Unlock()
+	}
+}
+
+// ---- log events ----
+
+var (
+	rePlayerJoin  = regexp.MustCompile(`Player connected: (.+?), xuid: ?(\d*)`)
+	rePlayerLeave = regexp.MustCompile(`Player disconnected: (.+?), xuid: ?(\d*)`)
+	reVersion     = regexp.MustCompile(`\bVersion:? ([0-9]+(?:\.[0-9]+){2,3})`)
+)
+
+// onLineLocked handles one line of server output. Caller holds s.mu.
+func (s *Server) onLineLocked(line string) {
+	s.addLineLocked(line)
+	switch {
+	case strings.Contains(line, "Server started."):
+		if s.state == StateStarting {
+			s.state = StateRunning
+			s.message = ""
+			s.m.log.Info("server running", "id", s.meta.ID)
+		}
+	case rePlayerJoin.MatchString(line):
+		mm := rePlayerJoin.FindStringSubmatch(line)
+		s.players[mm[1]] = Player{Name: mm[1], XUID: mm[2], Since: time.Now()}
+	case rePlayerLeave.MatchString(line):
+		mm := rePlayerLeave.FindStringSubmatch(line)
+		delete(s.players, mm[1])
+	case reVersion.MatchString(line) && s.state == StateStarting:
+		if v := reVersion.FindStringSubmatch(line)[1]; v != s.meta.Version {
+			s.meta.Version = v
+			s.saveMetaLater()
+		}
+	}
+}
+
+// ---- start and stop ----
+
+var (
+	errBusy         = errors.New("the server is busy installing or updating")
+	errShuttingDown = errors.New("the panel is shutting down")
+)
+
+// Start starts the server and marks it to start again after a panel restart.
+func (s *Server) Start() error {
+	if s.m.ctx.Err() != nil {
+		return errShuttingDown
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.busy {
+		return errBusy
+	}
+	if s.cmd != nil {
+		return errors.New("the server is already running")
+	}
+	if s.restart != nil {
+		s.restart.Stop()
+		s.restart = nil
+	}
+	s.crashes = nil
+	if !s.meta.AutoStart {
+		s.meta.AutoStart = true
+		s.saveMetaLater()
+	}
+	return s.startLocked()
+}
+
+// failLocked puts the server in the error state with a message.
+func (s *Server) failLocked(msg string) error {
+	s.state = StateError
+	s.message = msg
+	s.addLineLocked("[Panel] " + msg)
+	return errors.New(msg)
+}
+
+func (s *Server) startLocked() error {
+	bin := s.binary()
+	if _, err := os.Stat(bin); err != nil {
+		return s.failLocked("The server files are missing. Use Update to download them again.")
+	}
+	if b, err := os.ReadFile(s.incompleteMarker()); err == nil {
+		return s.failLocked(strings.TrimSpace(string(b)))
+	}
+	// The execute bit gets lost when files are copied around by hand, which
+	// is the classic "Permission denied: ./bedrock_server". Set it every time.
+	_ = os.Chmod(bin, 0o755)
+	if err := s.applyPanelProperties(false); err != nil {
+		s.addLineLocked("[Panel] Couldn't update server.properties: " + err.Error())
+	}
+
+	cmd := exec.Command(bin)
+	cmd.Dir = s.dir()
+	cmd.Env = append(os.Environ(), "LD_LIBRARY_PATH=.")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return s.failLocked("Couldn't start the server: " + err.Error())
+	}
+	pr, pw, err := os.Pipe()
+	if err != nil {
+		stdin.Close()
+		return s.failLocked("Couldn't start the server: " + err.Error())
+	}
+	cmd.Stdout, cmd.Stderr = pw, pw
+	s.addLineLocked(fmt.Sprintf("[Panel] Starting %s on port %d…", s.meta.Name, s.meta.Port))
+	if err := cmd.Start(); err != nil {
+		pr.Close()
+		pw.Close()
+		stdin.Close() // exec closes its own pipe ends; ours too, to be sure
+		return s.failLocked("Couldn't start the server: " + err.Error())
+	}
+	pw.Close()
+	commands := make(chan string, commandQueue)
+	s.cmd, s.commands, s.exited, s.stopping = cmd, commands, make(chan struct{}), false
+	s.state, s.message = StateStarting, ""
+	s.players = map[string]Player{}
+	s.m.log.Info("server starting", "id", s.meta.ID, "pid", cmd.Process.Pid)
+
+	// One writer per process, so a server that stops reading its input
+	// can only ever block this goroutine.
+	go func() {
+		defer stdin.Close()
+		for line := range commands {
+			if _, err := io.WriteString(stdin, line+"\n"); err != nil {
+				for range commands { // drain until the process exits
+				}
+				return
+			}
+		}
+	}()
+
+	readDone := make(chan struct{})
+	go func() {
+		defer close(readDone)
+		sc := bufio.NewScanner(pr)
+		sc.Buffer(make([]byte, 64*1024), 1024*1024)
+		for sc.Scan() {
+			s.mu.Lock()
+			s.onLineLocked(sc.Text())
+			s.mu.Unlock()
+		}
+		pr.Close()
+	}()
+	go func() {
+		err := cmd.Wait()
+		select {
+		case <-readDone:
+		case <-time.After(3 * time.Second):
+		}
+		s.onExit(cmd, err)
+	}()
+	return nil
+}
+
+// sendLocked queues a line for the process without blocking. Caller holds
+// s.mu and has checked s.cmd != nil.
+func (s *Server) sendLocked(line string) bool {
+	select {
+	case s.commands <- line:
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *Server) onExit(cmd *exec.Cmd, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.cmd != cmd {
+		return
+	}
+	requested := s.stopping
+	close(s.exited)
+	close(s.commands)
+	s.cmd, s.commands, s.exited = nil, nil, nil
+	s.players = map[string]Player{}
+	cleanExit := cmd.ProcessState != nil && cmd.ProcessState.Success()
+	if requested || cleanExit {
+		// A clean exit we didn't ask for is the server being stopped from
+		// inside (a script or an operator), not a crash.
+		s.state = StateStopped
+		s.addLineLocked("[Panel] Server stopped.")
+		s.m.log.Info("server stopped", "id", s.meta.ID)
+		return
+	}
+
+	code := "unknown"
+	if cmd.ProcessState != nil {
+		code = cmd.ProcessState.String()
+	}
+	now := time.Now()
+	recent := s.crashes[:0]
+	for _, t := range s.crashes {
+		if now.Sub(t) < crashWindow {
+			recent = append(recent, t)
+		}
+	}
+	s.crashes = append(recent, now)
+	s.m.log.Warn("server stopped unexpectedly", "id", s.meta.ID, "exit", code, "crashesRecently", len(s.crashes))
+	if len(s.crashes) >= maxCrashes || s.m.ctx.Err() != nil {
+		s.state = StateCrashed
+		s.message = fmt.Sprintf("Stopped after crashing %d times in %d minutes. Check the console, then press Start.", len(s.crashes), int(crashWindow.Minutes()))
+		s.addLineLocked("[Panel] " + s.message)
+		return
+	}
+	wait := time.Duration(len(s.crashes)*len(s.crashes)) * crashBackoff // 5s, 20s, 45s
+	s.state = StateStarting
+	s.message = "Restarting after a crash"
+	s.addLineLocked(fmt.Sprintf("[Panel] The server stopped unexpectedly (%s). Restarting in %s…", code, wait))
+	s.restart = time.AfterFunc(wait, func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if s.restart == nil || s.cmd != nil || s.busy || s.m.ctx.Err() != nil {
+			return
+		}
+		s.restart = nil
+		_ = s.startLocked()
+	})
+}
+
+// Stop asks the server to save and stop, and marks it to stay stopped after a
+// panel restart.
+func (s *Server) Stop() error {
+	s.mu.Lock()
+	if s.meta.AutoStart {
+		s.meta.AutoStart = false
+		s.saveMetaLater()
+	}
+	s.mu.Unlock()
+	s.stop(true)
+	return nil
+}
+
+// stop stops the process. It returns a channel closed when the process has
+// exited, or nil if nothing was running.
+func (s *Server) stop(user bool) <-chan struct{} {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.restart != nil {
+		s.restart.Stop()
+		s.restart = nil
+		if s.cmd == nil {
+			s.state = StateStopped
+			s.message = ""
+		}
+	}
+	if s.cmd == nil {
+		return nil
+	}
+	exited := s.exited
+	if s.stopping {
+		return exited
+	}
+	s.stopping = true
+	s.state = StateStopping
+	if user {
+		s.addLineLocked("[Panel] Stopping (saving the world first)…")
+	} else {
+		s.addLineLocked("[Panel] The panel is shutting down; stopping the server…")
+	}
+	// Start the fallback first, so a server that won't take the command is
+	// still stopped.
+	pid := s.cmd.Process.Pid
+	timeout := s.m.opts.StopTimeout
+	go func() {
+		select {
+		case <-exited:
+			return
+		case <-time.After(timeout):
+		}
+		s.say("The server didn't stop in time; forcing it.")
+		_ = syscall.Kill(-pid, syscall.SIGTERM)
+		select {
+		case <-exited:
+		case <-time.After(10 * time.Second):
+			_ = syscall.Kill(-pid, syscall.SIGKILL)
+		}
+	}()
+	s.sendLocked("stop")
+	return exited
+}
+
+// Restart stops the server if it's running, then starts it.
+func (s *Server) Restart() error {
+	if done := s.stop(true); done != nil {
+		<-done
+	}
+	return s.Start()
+}
+
+// Command sends a line to the server console, like "say hello". "stop" is
+// handled like the Stop button.
+func (s *Server) Command(line string) error {
+	line = strings.TrimSpace(line)
+	if line == "" || strings.ContainsAny(line, "\r\n") {
+		return errors.New("type one command")
+	}
+	if strings.EqualFold(strings.TrimPrefix(line, "/"), "stop") {
+		s.say("> " + line)
+		return s.Stop()
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.cmd == nil {
+		return errors.New("the server isn't running")
+	}
+	s.addLineLocked("> " + line)
+	if !s.sendLocked(line) {
+		return errors.New("the server isn't taking commands right now; it may be stuck")
+	}
+	return nil
+}
+
+// ---- install and update ----
+
+func (s *Server) installAndStart() {
+	defer s.m.work.Done()
+	err := s.install(false)
+	s.mu.Lock()
+	s.busy = false
+	if err != nil {
+		s.failLocked("Install failed: " + err.Error())
+		s.mu.Unlock()
+		s.m.log.Error("install failed", "id", s.meta.ID, "error", err)
+		return
+	}
+	s.state = StateStopped
+	s.mu.Unlock()
+	if err := s.Start(); err != nil {
+		s.m.log.Warn("could not start a new server", "id", s.meta.ID, "error", err)
+	}
+}
+
+// Update backs the server up, downloads the current version and starts it
+// again if it was running and nobody pressed Stop meanwhile. It returns
+// straight away; follow the console.
+func (s *Server) Update() error {
+	if !s.m.beginWork() {
+		return errShuttingDown
+	}
+	s.mu.Lock()
+	if s.busy {
+		s.mu.Unlock()
+		s.m.work.Done()
+		return errBusy
+	}
+	s.busy = true
+	wasRunning := s.cmd != nil || s.restart != nil
+	s.mu.Unlock()
+
+	go func() {
+		defer s.m.work.Done()
+		if done := s.stop(true); done != nil {
+			<-done
+		}
+		s.mu.Lock()
+		s.state = StateUpdating
+		s.message = ""
+		s.mu.Unlock()
+
+		err := s.update()
+		s.mu.Lock()
+		s.busy = false
+		var partial *partialUpdateError
+		switch {
+		case errors.As(err, &partial):
+			msg := "Update failed partway: " + partial.Error() + " Restore the backup " + partial.backup + " before starting the server."
+			_ = os.WriteFile(s.incompleteMarker(), []byte(msg+"\n"), 0o644)
+			s.failLocked(msg)
+			s.mu.Unlock()
+			s.m.log.Error("update failed partway", "id", s.meta.ID, "error", err)
+			return
+		case err != nil:
+			s.notice = "Update failed: " + err.Error() + " Nothing was changed."
+			s.addLineLocked("[Panel] " + s.notice)
+			s.m.log.Error("update failed", "id", s.meta.ID, "error", err)
+		default:
+			s.notice = ""
+		}
+		if _, statErr := os.Stat(s.binary()); statErr != nil {
+			s.state = StateError
+		} else {
+			s.state = StateStopped
+		}
+		startAgain := wasRunning && s.meta.AutoStart && s.state == StateStopped
+		s.mu.Unlock()
+		if startAgain {
+			_ = s.Start()
+		}
+	}()
+	return nil
+}
+
+// partialUpdateError means an update changed some files but not all.
+type partialUpdateError struct {
+	err    error
+	backup string
+}
+
+func (e *partialUpdateError) Error() string { return e.err.Error() }
+func (e *partialUpdateError) Unwrap() error { return e.err }
+
+func (s *Server) update() error {
+	backupPath := ""
+	if _, err := os.Stat(s.binary()); err == nil {
+		s.say("Backing up before the update…")
+		path, err := backup(s.m.ctx, s.dir(), s.m.backupsDir(s.meta.ID), s.meta.ID, "before-update", updateBackups)
+		if err != nil {
+			return fmt.Errorf("backup failed, so nothing was changed: %w", err)
+		}
+		backupPath = path
+		s.say("Backup saved: " + filepath.Base(path))
+	}
+	err := s.install(true)
+	var partial *partialUpdateError
+	if errors.As(err, &partial) {
+		partial.backup = backupPath
+	}
+	return err
+}
+
+// install downloads the current version into the server folder. On an
+// update, settings, the allowlist, permissions and worlds are kept.
+func (s *Server) install(update bool) error {
+	ctx, cancel := context.WithTimeout(s.m.ctx, 30*time.Minute)
+	defer cancel()
+	s.mu.Lock()
+	preview, current := s.meta.Preview, s.meta.Version
+	s.mu.Unlock()
+
+	s.say("Asking Mojang for the current Bedrock server…")
+	url, version, err := s.m.latestBedrock(ctx, preview)
+	if err != nil {
+		return err
+	}
+	_, statErr := os.Stat(s.binary())
+	if update && statErr == nil && version != "" && version == current {
+		s.say("Already on the current version (" + version + ").")
+		return nil
+	}
+	s.say("Installing Bedrock " + version + ". By downloading it you accept the Minecraft EULA: https://www.minecraft.net/eula")
+	zipPath, err := s.m.download(ctx, url, s.m.serversDir(), s.say)
+	if err != nil {
+		return err
+	}
+	defer os.Remove(zipPath)
+	staging, err := os.MkdirTemp(s.m.serversDir(), ".staging-"+s.meta.ID+"-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(staging)
+	s.say("Unpacking…")
+	if err := extractZip(ctx, zipPath, staging); err != nil {
+		return err
+	}
+	if _, err := os.Stat(filepath.Join(staging, "bedrock_server")); err != nil {
+		return errors.New("the download doesn't contain bedrock_server")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := mergeInto(ctx, staging, s.dir(), update); err != nil {
+		var partial *partialUpdateError
+		if errors.As(err, &partial) {
+			return err
+		}
+		return fmt.Errorf("couldn't copy the new files into place: %w", err)
+	}
+	_ = os.Chmod(s.binary(), 0o755)
+
+	s.mu.Lock()
+	s.meta.Version = version
+	s.mu.Unlock()
+	if err := s.saveMeta(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	err = s.applyPanelProperties(!update)
+	s.mu.Unlock()
+	if err != nil {
+		return fmt.Errorf("couldn't set up server.properties: %w", err)
+	}
+	_ = os.Remove(s.incompleteMarker())
+	s.say("Bedrock " + version + " is installed.")
+	return nil
+}
+
+// applyPanelProperties sets the settings the panel manages. Caller holds
+// s.mu. With fresh, it also names the server after the panel name.
+func (s *Server) applyPanelProperties(fresh bool) error {
+	path := filepath.Join(s.dir(), "server.properties")
+	p, err := readProperties(path)
+	if err != nil {
+		return err
+	}
+	before := strings.Join(p.lines, "\n")
+	if fresh {
+		p.set("server-name", s.meta.Name)
+	}
+	p.set("server-port", fmt.Sprint(s.meta.Port))
+	p.set("server-portv6", fmt.Sprint(s.meta.PortV6))
+	// The console server list answers LAN searches on port 19132 for the
+	// whole container; a game server doing the same would clash with it.
+	p.set("enable-lan-visibility", "false")
+	p.setIfPresent("server-udp-ports", udpRange(s.meta.Port))
+	if strings.Join(p.lines, "\n") == before {
+		return nil
+	}
+	return p.write(path)
+}

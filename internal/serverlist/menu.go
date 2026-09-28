@@ -95,6 +95,7 @@ type menu struct {
 	store     *playerStore
 	key       string
 	gamertag  string
+	host      string // this container's address as the console should use it
 	connected time.Time
 	onFirst   func()
 
@@ -133,6 +134,11 @@ func (m *menu) showMain(reason string, onlyFirst bool) {
 	if err != nil {
 		m.log.Error("could not read the server list", "error", err)
 	}
+	if m.cfg.PanelServers != nil {
+		for _, p := range m.cfg.PanelServers() {
+			house = append(house, Server{Name: p.Name, Address: m.host, Port: uint16(p.Port)})
+		}
+	}
 	var own []Server
 	if m.cfg.PlayerServers {
 		if own, err = m.store.list(m.key); err != nil {
@@ -140,7 +146,7 @@ func (m *menu) showMain(reason string, onlyFirst bool) {
 		}
 	}
 	if len(house) == 0 && !m.cfg.PlayerServers {
-		_ = m.l.Disconnect(m.conn, "No servers have been added yet. Ask the owner to add some in the panel.")
+		_ = m.l.Disconnect(m.conn, "No servers are running yet. Ask the owner to start one in the panel.")
 		return
 	}
 
@@ -167,7 +173,7 @@ func (m *menu) showMain(reason string, onlyFirst bool) {
 		}
 	}
 	if len(house) == 0 && len(own) == 0 {
-		form.Content = "No servers have been added yet. You can connect to one by its address."
+		form.Content = "No servers are running right now. You can connect to one by its address."
 	}
 	if !m.send(formMain, form) {
 		return

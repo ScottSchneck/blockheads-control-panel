@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Blockheads Control Panel</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>Blockheads Control Panel</h1>
+  <span id="version" class="muted"></span>
+</header>
+
+<main>
+  <section>
+    <div class="section-head">
+      <h2>Servers</h2>
+      <button id="add-toggle" class="primary">Add server</button>
+    </div>
+
+    <form id="add-form" class="card" hidden>
+      <label>Server name
+        <input id="add-name" maxlength="40" required placeholder="Survival world" autocomplete="off">
+      </label>
+      <label class="check">
+        <input id="add-eula" type="checkbox" required>
+        <span>I accept the <a href="https://www.minecraft.net/eula" target="_blank" rel="noopener">Minecraft EULA</a>. The server is downloaded from Mojang.</span>
+      </label>
+      <div class="row">
+        <button type="submit" class="primary">Create and start</button>
+        <button type="button" id="add-cancel">Cancel</button>
+      </div>
+      <p id="add-error" class="error" hidden></p>
+    </form>
+
+    <p id="empty" class="muted" hidden>No servers yet. Press <b>Add server</b> to download Bedrock and start one.</p>
+    <div id="servers"></div>
+  </section>
+
+  <section id="console-panel" hidden>
+    <div class="section-head">
+      <h2>Console: <span id="console-name"></span></h2>
+      <button id="console-close">Close</button>
+    </div>
+    <pre id="console-log" class="console" aria-live="polite"></pre>
+    <form id="console-form" class="row">
+      <input id="console-input" placeholder="Type a command, e.g. say Dinner time!" autocomplete="off">
+      <button type="submit" class="primary">Send</button>
+    </form>
+    <p id="console-error" class="error" hidden></p>
+  </section>
+</main>
+<script src="app.js"></script>
+</body>
+</html>

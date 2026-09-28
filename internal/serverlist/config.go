@@ -2,6 +2,7 @@ package serverlist
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -70,7 +71,13 @@ type Config struct {
 	// console menu and save it to their own list.
 	PlayerServers bool
 
-	players   *playerStore
+	players *playerStore
+
+	// PanelServers, when set, returns the servers the panel itself runs.
+	// They're listed in the menu after the ones in SERVERS_FILE, at this
+	// container's address.
+	PanelServers func() []PanelServer
+
 	MenuTitle string
 	// ListName and ListSubtitle are what consoles show for the list under
 	// Friends → LAN Games (and on the featured-server tile).
@@ -328,8 +335,17 @@ func (c *Config) allowsNetherNet(host string) bool {
 
 // loadServers reads the server list fresh each time a console opens the menu,
 // so edits to the file show up without restarting the container.
+// PanelServer is a server run by the panel.
+type PanelServer struct {
+	Name string
+	Port int
+}
+
 func loadServers(path string) ([]Server, error) {
 	b, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil // optional now that the panel lists its own servers
+	}
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", path, err)
 	}

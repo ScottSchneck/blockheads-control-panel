@@ -1,9 +1,10 @@
 // Command blockheads is the Blockheads Control Panel.
 //
-// For now it runs the console server list (built-in DNS plus the menu that
-// lets Xbox, PlayStation and Switch players join your Bedrock servers). The
-// web panel, server manager and the rest of phase 1 are added to this same
-// program as they are built.
+// It runs, in one program:
+//   - the server manager, which installs, runs and updates game servers;
+//   - the web panel (HTTPS, port 8443 by default);
+//   - the console server list: built-in DNS plus the menu that lets Xbox,
+//     PlayStation and Switch players join.
 package main
 
 import (
@@ -13,9 +14,15 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
+	"sync"
 	"syscall"
+	"time"
 
 	"github.com/ScottSchneck/blockheads-control-panel/internal/serverlist"
+	"github.com/ScottSchneck/blockheads-control-panel/internal/servers"
+	"github.com/ScottSchneck/blockheads-control-panel/internal/web"
 )
 
 // version is set at build time with -ldflags "-X main.version=...".
@@ -37,10 +44,105 @@ func main() {
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.LogLevel})))
 	slog.Info("Blockheads Control Panel", "version", version)
 
+	webPort, err := envInt("WEB_PORT", 8443)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "setup problem:", err)
+		os.Exit(2)
+	}
+	stopSeconds, err := envInt("STOP_TIMEOUT", 30)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "setup problem:", err)
+		os.Exit(2)
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if err := serverlist.Run(ctx, cfg); err != nil {
-		slog.Error("stopped", "error", err)
+
+	// Game servers.
+	mgr := servers.New(servers.Options{
+		DataDir:     cfg.DataDir,
+		DownloadAPI: os.Getenv("BEDROCK_DOWNLOAD_API"),
+		Version:     version,
+		StopTimeout: time.Duration(stopSeconds) * time.Second,
+	})
+	if err := mgr.Load(); err != nil {
+		slog.Error("could not read the servers folder", "error", err)
 		os.Exit(1)
+	}
+	mgr.StartAutoStart()
+
+	// The console menu lists the servers the panel runs.
+	cfg.PanelServers = func() []serverlist.PanelServer {
+		var out []serverlist.PanelServer
+		for _, j := range mgr.Joinable() {
+			out = append(out, serverlist.PanelServer{Name: j.Name, Port: j.Port})
+		}
+		return out
+	}
+
+	// Web panel.
+	panel, err := web.New(web.Options{
+		Port:     webPort,
+		TLS:      envBool("WEB_TLS", true),
+		Password: os.Getenv("PANEL_PASSWORD"),
+		DataDir:  cfg.DataDir,
+		HostIP:   cfg.ListIP.String(),
+		Version:  version,
+	}, mgr)
+	if err != nil {
+		slog.Error("web panel setup failed", "error", err)
+		os.Exit(1)
+	}
+
+	var wg sync.WaitGroup
+	failed := make(chan error, 2)
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		if err := panel.Run(ctx); err != nil {
+			failed <- fmt.Errorf("web panel: %w", err)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		if err := serverlist.Run(ctx, cfg); err != nil {
+			failed <- fmt.Errorf("server list: %w", err)
+		}
+	}()
+
+	exitCode := 0
+	select {
+	case <-ctx.Done():
+	case err := <-failed:
+		slog.Error("stopping", "error", err)
+		exitCode = 1
+		stop()
+	}
+	slog.Info("shutting down; stopping game servers so their worlds are saved")
+	mgr.StopAll()
+	wg.Wait()
+	os.Exit(exitCode)
+}
+
+func envInt(key string, def int) (int, error) {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return def, nil
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n <= 0 {
+		return 0, fmt.Errorf("%s must be a positive number, got %q", key, v)
+	}
+	return n, nil
+}
+
+func envBool(key string, def bool) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(key))) {
+	case "":
+		return def
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
 	}
 }

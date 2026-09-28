@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log/slog"
 	"net"
+	"net/netip"
 	"regexp"
 	"strconv"
 	"sync/atomic"
@@ -129,6 +130,7 @@ func handleSession(cfg *Config, l *minecraft.Listener, conn *minecraft.Conn, tra
 		store:     cfg.players,
 		key:       playerKey(ident.XUID, ident.DisplayName),
 		gamertag:  ident.DisplayName,
+		host:      transferHost(cfg, conn.RemoteAddr()),
 		connected: connected,
 		onFirst:   func() { logTimeline("menu shown") },
 	}
@@ -272,6 +274,17 @@ func sendEmptyWorld(conn *minecraft.Conn, cfg *Config) {
 // bedrockConnectChunkPayload copies BedrockConnect's empty chunk: 258 zero
 // bytes followed by an empty network NBT compound tag.
 var bedrockConnectChunkPayload = append(make([]byte, 258), 0x0a, 0x00, 0x00)
+
+// transferHost is the address consoles use to reach servers in this
+// container: the home address, or the public one for consoles outside.
+func transferHost(cfg *Config, remote net.Addr) string {
+	if cfg.PublicIP.IsValid() {
+		if ap, err := netip.ParseAddrPort(remoteIP(remote)); err == nil && !isHomeAddr(ap.Addr().Unmap()) {
+			return cfg.PublicIP.String()
+		}
+	}
+	return cfg.ListIP.String()
+}
 
 // remoteIP shortens NetherNet's long peer description ("<id> (<id>) (udp4
 // host 10.0.1.20:5000 ...)") to just the console's address.

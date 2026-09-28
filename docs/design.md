@@ -161,6 +161,7 @@ If Minecraft ever breaks the redirect for good, consoles keep access through the
 | Port | Protocol | Used for | Needed when |
 | --- | --- | --- | --- |
 | 8443 | TCP (HTTPS) | Web panel | Always |
+| 19134–19199 | TCP + UDP | Game servers the panel runs (a pair each, handed out automatically) | Per server |
 | 53 | UDP + TCP | Built-in DNS | Consoles join Bedrock servers |
 | 19132 | UDP | Console server list | Consoles join Bedrock servers |
 | One per server (e.g. 19144) | TCP + UDP | Bedrock game servers | Per server |
