@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -135,8 +136,24 @@ func (m *menu) showMain(reason string, onlyFirst bool) {
 		m.log.Error("could not read the server list", "error", err)
 	}
 	if m.cfg.PanelServers != nil {
-		for _, p := range m.cfg.PanelServers() {
-			house = append(house, Server{Name: p.Name, Address: m.host, Port: uint16(p.Port)})
+		panel := m.cfg.PanelServers()
+		// A server the panel runs replaces an entry of the same name in
+		// servers.json (the old copy, for example in Crafty).
+		kept := house[:0]
+		for _, h := range house {
+			dup := false
+			for _, p := range panel {
+				dup = dup || strings.EqualFold(strings.TrimSpace(p.Name), strings.TrimSpace(h.Name))
+			}
+			if !dup {
+				kept = append(kept, h)
+			}
+		}
+		house = kept
+		for _, p := range panel {
+			if p.Running {
+				house = append(house, Server{Name: p.Name, Address: m.host, Port: uint16(p.Port)})
+			}
 		}
 	}
 	var own []Server

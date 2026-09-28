@@ -340,10 +340,12 @@ func (c *Config) allowsNetherNet(host string) bool {
 
 // loadServers reads the server list fresh each time a console opens the menu,
 // so edits to the file show up without restarting the container.
-// PanelServer is a server run by the panel.
+// PanelServer is a server run by the panel. Only running ones are listed;
+// the others still hide entries of the same name from SERVERS_FILE.
 type PanelServer struct {
-	Name string
-	Port int
+	Name    string
+	Port    int
+	Running bool
 }
 
 func loadServers(path string) ([]Server, error) {

@@ -16,7 +16,28 @@
   <section>
     <div class="section-head">
       <h2>Servers</h2>
-      <button id="add-toggle" class="primary">Add server</button>
+      <div class="row">
+        <button id="import-toggle">Import</button>
+        <button id="add-toggle" class="primary">Add server</button>
+      </div>
+    </div>
+
+    <div id="import-box" class="card" hidden>
+      <div class="row between">
+        <h3>Import from Crafty or another folder</h3>
+        <button type="button" id="import-close">Close</button>
+      </div>
+      <p id="import-missing" class="muted small" hidden></p>
+      <div id="import-ready">
+        <p class="muted small">Each server is copied into the panel with its worlds, settings, allowlist and operators. The original folder isn't changed, so you can go back to it.</p>
+        <label class="check">
+          <input id="import-stopped" type="checkbox">
+          <span>I've stopped these servers in the other panel and will leave them stopped. Two copies can't use the same port, and a server that's running while it's copied can give a damaged world.</span>
+        </label>
+        <p id="import-error" class="error" hidden></p>
+        <ul id="import-results" class="people"></ul>
+        <ul id="import-list" class="people imports"></ul>
+      </div>
     </div>
 
     <form id="add-form" class="card" hidden>
@@ -37,7 +58,7 @@
       <p id="add-error" class="error" hidden></p>
     </form>
 
-    <p id="empty" class="muted" hidden>No servers yet. Press <b>Add server</b> to download Bedrock and start one.</p>
+    <p id="empty" class="muted" hidden>No servers yet. Press <b>Add server</b> to download Bedrock and start one, or <b>Import</b> to bring servers over from Crafty.</p>
     <div id="servers"></div>
   </section>
 

@@ -32,6 +32,10 @@ Switch players can join without extra apps.
   labelled controls with a line of explanation each. Only the lines you change
   are rewritten, and the panel offers to restart the server to apply them.
   An advanced editor opens the whole `server.properties` for everything else.
+- **Import from Crafty Controller** (or any folder of Bedrock servers). Each
+  server is copied in with its worlds, settings, allowlist and operators, and
+  keeps its port. The original is only read, never changed. See
+  [Moving from Crafty](#moving-from-crafty).
 - **A first web page** at `https://<container IP>:8443`, for desktop and phone.
   It's bare-bones for now; the full design comes next.
 - **Built-in DNS.** It answers the console "featured server" names (The Hive,
@@ -55,7 +59,7 @@ Switch players can join without extra apps.
 ## Coming in phase 1
 
 Scheduled backups and restore, a setup wizard with owner and user accounts,
-the full web design, and importing servers from Crafty Controller. Java,
+and the full web design. Java,
 Hytale and more follow in later phases.
 
 ## Install
@@ -99,6 +103,40 @@ list by themselves under **Friends → LAN Games** (a PS5 does), with no DNS
 change at all. Otherwise, set the console's DNS to the container's IP,
 **restart the console**, open Minecraft, and join any featured server.
 
+### Moving from Crafty
+
+Mount Crafty's servers folder read-only at `/import` by adding this to the
+`docker run` command (the path is binhex's Crafty on Unraid; adjust it for
+yours):
+
+```bash
+  -v /mnt/user/appdata/binhex-crafty-4/crafty/servers:/import/crafty:ro \
+```
+
+Then, for each server:
+
+1. **Stop it in Crafty** and leave it stopped (turn off its auto-start). Two
+   copies can't share a port, and copying a running server can damage the
+   world.
+2. In the panel, press **Import**, tick the box to say it's stopped, check the
+   name and port (it keeps its Crafty port when it can), and press **Import**.
+   The server shows as *Importing* while it copies, then *Stopped*, or starts
+   straight away if you ticked **Start when copied**.
+3. If you port-forward the server for friends, point the router rule at the
+   panel's IP instead of Crafty's.
+
+Ports must be an even number from 19134 to 19198 (each server also uses the
+next port up for IPv6). A server on 19132, Bedrock's default, gets a free port
+instead, because 19132 is the console server list's.
+
+If the console menu's `servers.json` has an entry with the same name as an
+imported server, the menu shows only the panel's server, so there's nothing
+to clean up there. The first **Update** of an imported server installs the
+current release, since the panel doesn't know which version Crafty had.
+
+Crafty's copy stays as it was. Once you're happy, remove the servers from
+Crafty and the `/import` mount.
+
 ### `servers.json`
 
 The same format as BedrockConnect's custom servers file:
@@ -124,6 +162,7 @@ apply without a restart.
 | `PLAYER_SERVERS` | `true` | Players can connect to any server by address from the console menu and save it to their own list |
 | `REQUIRE_SIGN_IN` | `false` | Turn away consoles whose Xbox sign-in can't be verified. Off by default because the game server checks sign-in itself |
 | `SERVERS_FILE` | `/config/servers.json` | Extra servers for the console menu that the panel doesn't run (optional) |
+| `IMPORT_DIR` | `/import` | Where other panels' server folders are mounted (read-only) for **Import** |
 | `DATA_DIR` | `/data` | Game servers (`/data/servers`), backups (`/data/backups`), keys and certificates |
 | `MENU_TITLE` | `Pick a server` | Title of the console menu |
 | `LIST_NAME`, `LIST_SUBTITLE` | `Server List`, `Pick a server` | What consoles show for the list under Friends → LAN Games |

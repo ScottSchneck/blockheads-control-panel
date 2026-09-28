@@ -23,6 +23,7 @@ type State string
 
 const (
 	StateInstalling State = "installing"
+	StateImporting  State = "importing"
 	StateUpdating   State = "updating"
 	StateStopped    State = "stopped"
 	StateStarting   State = "starting"
@@ -145,13 +146,16 @@ func (s *Server) Status() Status {
 // saveMeta writes the server's details. Writes are serialised and each one
 // takes its snapshot while holding saveMu, so the last write always carries
 // the latest details. It must not be called with mu held; use saveMetaLater.
-func (s *Server) saveMeta() error {
+func (s *Server) saveMeta() error { return s.writeMeta(s.dir()) }
+
+// writeMeta writes the server's details into dir.
+func (s *Server) writeMeta(dir string) error {
 	s.saveMu.Lock()
 	defer s.saveMu.Unlock()
 	s.mu.Lock()
 	b, _ := json.MarshalIndent(s.meta, "", "  ")
 	s.mu.Unlock()
-	path := filepath.Join(s.dir(), metaFile)
+	path := filepath.Join(dir, metaFile)
 	if err := os.WriteFile(path+".tmp", b, 0o644); err != nil {
 		return err
 	}
@@ -249,6 +253,8 @@ func (s *Server) onLineLocked(line string) {
 var (
 	errBusy         = errors.New("the server is busy installing or updating")
 	errShuttingDown = errors.New("the panel is shutting down")
+	// ErrImporting is returned for changes to a server that's still being copied.
+	ErrImporting = errors.New("the server is still being imported; wait for the copy to finish")
 )
 
 // Start starts the server and marks it to start again after a panel restart.
@@ -433,6 +439,10 @@ func (s *Server) onExit(cmd *exec.Cmd, err error) {
 // panel restart.
 func (s *Server) Stop() error {
 	s.mu.Lock()
+	if s.state == StateImporting {
+		s.mu.Unlock()
+		return ErrImporting
+	}
 	if s.meta.AutoStart {
 		s.meta.AutoStart = false
 		s.saveMetaLater()
@@ -440,6 +450,13 @@ func (s *Server) Stop() error {
 	s.mu.Unlock()
 	s.stop(true)
 	return nil
+}
+
+// Importing reports whether the server is still being copied in.
+func (s *Server) Importing() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.state == StateImporting
 }
 
 // stop stops the process. It returns a channel closed when the process has

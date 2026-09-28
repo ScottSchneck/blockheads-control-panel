@@ -5,7 +5,7 @@
 const $ = (id) => document.getElementById(id);
 const labels = {
   running: "Running", starting: "Starting", stopping: "Stopping", stopped: "Stopped",
-  installing: "Installing", updating: "Updating", crashed: "Crashed", error: "Needs attention",
+  installing: "Installing", importing: "Importing", updating: "Updating", crashed: "Crashed", error: "Needs attention",
 };
 let selected = null;      // server ID shown in the detail section
 let tab = "players";
@@ -49,7 +49,8 @@ function action(id, what) {
 }
 
 function renderServer(s) {
-  const busy = ["installing", "updating", "starting", "stopping"].includes(s.state);
+  const busy = ["installing", "importing", "updating", "starting", "stopping"].includes(s.state);
+  const copying = s.state === "importing";
   const live = s.state === "running" || s.state === "starting";
   const players = s.players.length
     ? `${s.players.length} playing: ${s.players.map((p) => p.name).join(", ")}`
@@ -67,9 +68,9 @@ function renderServer(s) {
         ? el("button", { class: "danger", onclick: action(s.id, "stop"), disabled: s.state === "stopping" }, "Stop")
         : el("button", { class: "primary", onclick: action(s.id, "start"), disabled: busy }, "Start"),
       el("button", { onclick: action(s.id, "restart"), disabled: !live || busy }, "Restart"),
-      el("button", { onclick: confirmUpdate(s), disabled: s.state === "installing" || s.state === "updating" }, "Update"),
-      el("button", { onclick: () => openDetail(s, "players") }, "Players"),
-      el("button", { onclick: () => openDetail(s, "settings") }, "Settings"),
+      el("button", { onclick: confirmUpdate(s), disabled: copying || s.state === "installing" || s.state === "updating" }, "Update"),
+      el("button", { onclick: () => openDetail(s, "players"), disabled: copying }, "Players"),
+      el("button", { onclick: () => openDetail(s, "settings"), disabled: copying }, "Settings"),
       el("button", { onclick: () => openDetail(s, "console") }, "Console")));
 }
 
@@ -84,6 +85,7 @@ function confirmUpdate(s) {
 async function refresh() {
   try {
     const list = await api("/api/servers");
+    importsFinished(list);
     $("servers").replaceChildren(...list.map(renderServer));
     $("empty").hidden = list.length > 0;
     if (selected) {
@@ -486,6 +488,7 @@ $("console-form").addEventListener("submit", async (ev) => {
 $("add-toggle").addEventListener("click", () => {
   $("add-form").hidden = !$("add-form").hidden;
   if (!$("add-form").hidden) {
+    $("import-box").hidden = true;
     $("add-owner").value = settings.ownerGamertag || "";
     $("add-name").focus();
   }
@@ -510,6 +513,124 @@ $("add-form").addEventListener("submit", async (ev) => {
     $("add-error").hidden = false;
   }
 });
+
+// ---- import ----
+
+const importDraft = {}; // path -> {name, port, start}, kept while the list reloads
+let importing = new Set(); // IDs of servers being copied
+
+function mb(bytes) {
+  if (!bytes) return "no world files";
+  if (bytes >= 1e9) return (bytes / 1e9).toFixed(1) + " GB";
+  return Math.max(1, Math.round(bytes / 1e6)) + " MB";
+}
+
+// importsFinished reloads the import screen when a copy ends, so a failure
+// shows up there (a failed import leaves no server card behind).
+function importsFinished(list) {
+  const now = new Set(list.filter((s) => s.state === "importing").map((s) => s.id));
+  const ended = [...importing].filter((id) => !now.has(id));
+  importing = now;
+  if (!ended.length) return;
+  // A failed import leaves no card, so open the import screen to show why.
+  const failed = ended.some((id) => !list.some((s) => s.id === id));
+  if (failed) $("import-box").hidden = false;
+  if (!$("import-box").hidden) loadImports();
+}
+
+async function loadImports() {
+  try {
+    const v = await api("/api/import");
+    renderImports(v || {});
+  } catch (err) {
+    showImportError(err);
+  }
+}
+
+function showImportError(err) {
+  $("import-error").textContent = err ? err.message : "";
+  $("import-error").hidden = !err;
+}
+
+function renderImports(v) {
+  $("import-missing").hidden = !!v.available;
+  $("import-ready").hidden = !v.available;
+  if (!v.available) {
+    $("import-missing").replaceChildren(
+      "Nothing to import yet. Mount the other panel's servers folder read-only at /import and restart the container. For Crafty on Unraid, add this to the docker run command:",
+      el("code", { class: "block" }, "-v /mnt/user/appdata/binhex-crafty-4/crafty/servers:/import/crafty:ro"));
+    return;
+  }
+  showImportError(v.message ? new Error(v.message) : null);
+  const done = new Set((v.candidates || []).filter((c) => c.imported).map((c) => c.path));
+  const failed = (v.results || []).filter((r) => !r.ok && !done.has(r.path));
+  $("import-results").replaceChildren(...failed.slice(0, 5).map((r) =>
+    el("li", { class: "failed" }, el("span", { class: "who" }, `${r.name}: import failed`, el("small", {}, r.error)))));
+  const list = v.candidates || [];
+  if (!list.length) {
+    $("import-list").replaceChildren(emptyRow("No Bedrock servers found in the import folder."));
+    return;
+  }
+  $("import-list").replaceChildren(...list.map(importRow));
+}
+
+function importRow(c) {
+  const facts = `${c.path} · world ${c.world || "?"} · ${mb(c.worlds)} · port ${c.port || "?"}`;
+  if (c.imported) {
+    return el("li", {}, el("span", { class: "who" }, c.name, el("small", {}, facts)),
+      el("span", { class: "badge" }, `Imported as ${c.importedAs}`));
+  }
+  const d = importDraft[c.path] || (importDraft[c.path] = {
+    name: c.name.slice(0, 40), port: c.portAvailable ? String(c.port) : "", start: false,
+  });
+  const name = el("input", { maxlength: "40", value: d.name, "aria-label": "Name in the panel", autocomplete: "off" });
+  name.addEventListener("input", () => { d.name = name.value; });
+  const port = el("input", { type: "number", min: "19134", max: "19198", step: "2", value: d.port, placeholder: "auto", "aria-label": "Port", class: "port" });
+  port.addEventListener("input", () => { d.port = port.value; });
+  const start = el("input", { type: "checkbox" });
+  start.checked = d.start;
+  start.addEventListener("change", () => { d.start = start.checked; });
+  const go = el("button", { class: "primary", type: "button" }, "Import");
+  go.addEventListener("click", async () => {
+    if (!$("import-stopped").checked) {
+      showImportError(new Error("Stop the server in the other panel first, then tick the box above."));
+      return;
+    }
+    go.disabled = true;
+    try {
+      const s = await post("/api/import", {
+        path: c.path, name: d.name.trim(), port: d.port ? Number(d.port) : 0, start: d.start,
+      });
+      delete importDraft[c.path];
+      showImportError(null);
+      importing.add(s.id);
+      await loadImports();
+      await refresh();
+    } catch (err) {
+      showImportError(err);
+      go.disabled = false;
+    }
+  });
+  const note = c.port && !c.portAvailable
+    ? el("small", { class: "warn" }, `Port ${c.port} can't be kept (it's taken or outside ${19134}–${19198}). Leave the port empty to pick a free one.`)
+    : null;
+  return el("li", { class: "import" },
+    el("span", { class: "who" }, c.name, el("small", {}, facts), note),
+    el("div", { class: "row" },
+      el("label", { class: "inline" }, "Name", name),
+      el("label", { class: "inline" }, "Port", port),
+      el("label", { class: "check inline" }, start, el("span", {}, "Start when copied")),
+      go));
+}
+
+$("import-toggle").addEventListener("click", () => {
+  $("import-box").hidden = !$("import-box").hidden;
+  if (!$("import-box").hidden) {
+    $("add-form").hidden = true;
+    loadImports();
+  }
+});
+$("import-close").addEventListener("click", () => { $("import-box").hidden = true; });
 
 // ---- start ----
 

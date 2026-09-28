@@ -30,6 +30,7 @@ type Options struct {
 	Version     string        // panel version, for the download User-Agent
 	StopTimeout time.Duration // how long a server gets to save and stop; 30s if zero
 	Log         *slog.Logger
+	ImportDir   string // other panels' server folders, mounted read-only; "" if none
 }
 
 // Manager keeps track of all servers.
@@ -50,6 +51,7 @@ type Manager struct {
 
 	people     *people
 	settingsMu sync.Mutex
+	imports    importState
 }
 
 // Meta is what the panel remembers about a server between restarts.
@@ -69,6 +71,9 @@ type Meta struct {
 	// PendingOps are gamertags to make operators when they first join
 	// (Bedrock needs their Xbox ID, which it only learns then).
 	PendingOps []string `json:"pendingOps,omitempty"`
+	// ImportedFrom is the folder (inside the import folder) the server was
+	// copied from, if it was imported.
+	ImportedFrom string `json:"importedFrom,omitempty"`
 }
 
 const metaFile = ".blockheads.json"
@@ -106,7 +111,7 @@ func (m *Manager) Load() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, e := range entries {
-		if strings.HasPrefix(e.Name(), ".staging-") || strings.HasPrefix(e.Name(), ".download-") {
+		if strings.HasPrefix(e.Name(), ".staging-") || strings.HasPrefix(e.Name(), ".download-") || strings.HasPrefix(e.Name(), ".import-") {
 			// Left over from an install that was interrupted.
 			_ = os.RemoveAll(filepath.Join(m.serversDir(), e.Name()))
 			continue
@@ -242,20 +247,21 @@ func (m *Manager) Get(id string) (*Server, bool) {
 	return s, ok
 }
 
-// Joinable is a server consoles can be sent to.
+// Joinable is one of the panel's servers, for the console menu.
 type Joinable struct {
-	Name string
-	Port int
+	Name    string
+	Port    int
+	Running bool
 }
 
-// Joinable returns the servers that are running, for the console menu.
+// Joinable returns the panel's servers for the console menu. Only running
+// ones are offered, but all are returned so the menu can hide entries from
+// servers.json that the panel now runs (for example after an import).
 func (m *Manager) Joinable() []Joinable {
 	var out []Joinable
 	for _, s := range m.all() {
 		st := s.Status()
-		if st.State == StateRunning {
-			out = append(out, Joinable{Name: st.Name, Port: st.Port})
-		}
+		out = append(out, Joinable{Name: st.Name, Port: st.Port, Running: st.State == StateRunning})
 	}
 	return out
 }

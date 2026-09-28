@@ -29,6 +29,10 @@ func (s *Server) withServer(h func(http.ResponseWriter, *http.Request, *servers.
 			writeError(w, http.StatusNotFound, errors.New("no such server"))
 			return
 		}
+		if r.Method != http.MethodGet && srv.Importing() {
+			writeError(w, http.StatusConflict, servers.ErrImporting)
+			return
+		}
 		h(w, r, srv)
 	}
 }

@@ -64,6 +64,7 @@ func main() {
 		DownloadAPI: os.Getenv("BEDROCK_DOWNLOAD_API"),
 		Version:     version,
 		StopTimeout: time.Duration(stopSeconds) * time.Second,
+		ImportDir:   envOr("IMPORT_DIR", "/import"),
 	})
 	if err := mgr.Load(); err != nil {
 		slog.Error("could not read the servers folder", "error", err)
@@ -75,7 +76,7 @@ func main() {
 	cfg.PanelServers = func() []serverlist.PanelServer {
 		var out []serverlist.PanelServer
 		for _, j := range mgr.Joinable() {
-			out = append(out, serverlist.PanelServer{Name: j.Name, Port: j.Port})
+			out = append(out, serverlist.PanelServer{Name: j.Name, Port: j.Port, Running: j.Running})
 		}
 		return out
 	}
@@ -142,6 +143,13 @@ func envInt(key string, def int) (int, error) {
 		return 0, fmt.Errorf("%s must be a positive number, got %q", key, v)
 	}
 	return n, nil
+}
+
+func envOr(key, def string) string {
+	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+		return v
+	}
+	return def
 }
 
 func envBool(key string, def bool) bool {

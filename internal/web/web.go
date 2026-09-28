@@ -148,6 +148,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/servers/{id}/console", s.console)
 	s.playerRoutes(mux)
 	s.settingsRoutes(mux)
+	s.importRoutes(mux)
 	return s.secure(mux)
 }
 
@@ -235,6 +236,10 @@ func (s *Server) serverAction(w http.ResponseWriter, r *http.Request) {
 	srv, ok := s.mgr.Get(r.PathValue("id"))
 	if !ok {
 		writeError(w, http.StatusNotFound, errors.New("no such server"))
+		return
+	}
+	if srv.Importing() {
+		writeError(w, http.StatusConflict, servers.ErrImporting)
 		return
 	}
 	var err error

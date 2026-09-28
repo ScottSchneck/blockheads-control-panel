@@ -120,3 +120,26 @@ func TestPageIsNotCached(t *testing.T) {
 		t.Errorf("Cache-Control %q", got)
 	}
 }
+
+func TestImportListWithoutFolder(t *testing.T) {
+	s, _ := newTestServer(t)
+	r := httptest.NewRequest("GET", "/api/import", nil)
+	r.SetBasicAuth("x", s.password)
+	w := httptest.NewRecorder()
+	s.routes().ServeHTTP(w, r)
+	if w.Code != 200 {
+		t.Fatalf("status %d: %s", w.Code, w.Body)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, `"available":false`) || strings.Contains(body, "null") {
+		t.Errorf("unexpected: %s", body)
+	}
+	r = httptest.NewRequest("POST", "/api/import", strings.NewReader(`{"path":"a","name":"A"}`))
+	r.SetBasicAuth("x", s.password)
+	r.Header.Set("X-Blockheads", "1")
+	w = httptest.NewRecorder()
+	s.routes().ServeHTTP(w, r)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("import without a folder: %d %s", w.Code, w.Body)
+	}
+}

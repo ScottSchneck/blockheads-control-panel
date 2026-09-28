@@ -378,6 +378,11 @@ func (s *Server) Rename(name string) error {
 		}
 	}
 	s.mu.Lock()
+	if s.state == StateImporting {
+		s.mu.Unlock()
+		s.m.mu.Unlock()
+		return ErrImporting
+	}
 	old := s.meta.Name
 	s.meta.Name = name
 	s.addLineLocked(fmt.Sprintf("[Panel] Renamed from %q to %q.", old, name))

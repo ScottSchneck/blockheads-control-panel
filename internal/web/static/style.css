@@ -37,7 +37,7 @@ a { color: var(--primary); }
 .server-name { font-weight: 600; font-size: 16px; }
 .facts { color: var(--muted); font-size: 13px; margin: 2px 0 8px; }
 .pill { font-size: 12px; font-weight: 600; padding: 2px 10px; border-radius: 99px; border: 1px solid currentColor; white-space: nowrap; }
-.pill.running { color: var(--ok); } .pill.starting, .pill.stopping, .pill.installing, .pill.updating { color: var(--warn); }
+.pill.running { color: var(--ok); } .pill.starting, .pill.stopping, .pill.installing, .pill.importing, .pill.updating { color: var(--warn); }
 .pill.crashed, .pill.error { color: var(--bad); } .pill.stopped { color: var(--idle); }
 .message { font-size: 13px; color: var(--warn); margin: 0 0 8px; }
 .players { font-size: 13px; margin: 0 0 10px; }
@@ -79,7 +79,18 @@ details.card summary { cursor: pointer; font-weight: 600; }
 textarea { width: 100%; font: 12.5px/1.45 ui-monospace, Menlo, monospace; background: var(--console-bg); color: var(--console-text); border: 1px solid var(--border); border-radius: 8px; padding: 10px; margin: 8px 0; resize: vertical; }
 .field select, .field input[type=text] { max-width: 100%; }
 main, section, .card, form { min-width: 0; max-width: 100%; }
+.row.between h3 { flex: 1; margin: 0; }
+code.block { display: block; margin: 8px 0; padding: 8px 10px; border-radius: 8px; background: var(--console-bg); color: var(--console-text); font: 12.5px/1.45 ui-monospace, Menlo, monospace; overflow-wrap: anywhere; }
+.imports li.import { align-items: flex-start; flex-direction: column; }
+.imports li .who { width: 100%; }
+.people .who small.warn { color: var(--warn); }
+.people li.failed .who { color: var(--bad); }
+label.inline { display: flex; flex-direction: row; align-items: center; gap: 6px; margin: 0; font-size: 14px; }
+label.inline input { width: 12em; flex: 1; }
+label.inline input.port { width: 6.5em; flex: none; }
+label.check.inline input { width: auto; flex: none; margin: 0; }
 @media (max-width: 600px) {
+  label.inline:not(.check) { width: 100%; }
   .field .top { flex-direction: column; align-items: stretch; }
   .field .top .label { order: 0; }
   .field select, .field input[type=text] { min-width: 0; width: 100%; }
