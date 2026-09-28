@@ -102,3 +102,31 @@ label.check.inline input { width: auto; flex: none; margin: 0; }
   .field label.switch { align-self: flex-start; }
   .savebar { flex-wrap: wrap; }
 }
+
+/* sign-in, account and setup guide */
+header .spacer { flex: 1; }
+button.plain { border: none; background: none; color: var(--text); font-weight: 600; padding: 6px 8px; }
+.auth { max-width: 420px; margin: 32px auto; padding: 0 16px; }
+.auth h2 { margin-bottom: 8px; }
+.auth input { width: 100%; }
+.auth button[type=submit] { width: 100%; }
+.auth .row button { width: auto; flex: 1; }
+.ok { color: var(--ok); }
+#password-form { margin-top: 14px; }
+#password-form input { min-width: 150px; }
+.guide h2 { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.steps { list-style: none; display: flex; gap: 6px; padding: 0; margin: 12px 0 14px; flex-wrap: wrap; counter-reset: step; }
+.steps li { counter-increment: step; font-size: 13px; color: var(--muted); padding: 4px 10px; border-radius: 99px; border: 1px solid var(--border); }
+.steps li::before { content: counter(step) ". "; }
+.steps li.current { color: var(--text); border-color: var(--primary); font-weight: 600; }
+.steps li.done { color: var(--ok); }
+.guide-pane p { margin: 0 0 10px; }
+.guide-nav { margin-top: 14px; justify-content: flex-end; }
+.checklist { list-style: none; padding: 0; margin: 0; }
+.checklist li { display: flex; gap: 10px; padding: 8px 0; border-top: 1px solid var(--border); }
+.checklist li:first-child { border-top: none; }
+.checklist .mark { flex: none; width: 22px; height: 22px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; }
+.checklist li.ok .mark { background: var(--ok); color: #fff; }
+.checklist li.todo .mark { background: var(--warn); color: #fff; }
+.checklist li.ok, .checklist li.todo { color: var(--text); }
+.auth input { font-size: 16px; } /* stops phones zooming in */

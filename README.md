@@ -42,6 +42,9 @@ Switch players can join without extra apps.
   server is copied in with its worlds, settings, allowlist and operators, and
   keeps its port. The original is only read, never changed. See
   [Moving from Crafty](#moving-from-crafty).
+- **Owner account** with a sign-in page, a setup guide the first time, and
+  a password reset from the command line. Passwords are hashed with Argon2id;
+  repeated wrong passwords lock that address out for 15 minutes.
 - **A first web page** at `https://<container IP>:8443`, for desktop and phone.
   It's bare-bones for now; the full design comes next.
 - **Built-in DNS.** It answers the console "featured server" names (The Hive,
@@ -64,8 +67,9 @@ Switch players can join without extra apps.
 
 ## Coming in phase 1
 
-A setup wizard with owner and user accounts, and the full web design. Java,
-Hytale and more follow in later phases.
+The full web design. Phase 2 adds more user accounts with roles (so a kid
+can run their own server) and friends joining from outside; Java, Hytale and
+more follow later.
 
 ## Install
 
@@ -91,10 +95,24 @@ docker run -d --name blockheads --restart unless-stopped --stop-timeout 60 \
 `servers.json` is optional: it's for servers the panel doesn't run itself.
 
 **Open the panel** at `https://192.168.1.60:8443`. Your browser warns about the
-certificate once (it's made by the panel itself); continue anyway. Sign in
-with any username and the panel password: the first start creates one and
-prints it in the log (`docker logs blockheads | grep password`), and it's kept
-in `/data/panel-password`. Set `PANEL_PASSWORD` to choose your own.
+certificate once (it's made by the panel itself); continue anyway.
+
+The first time, the panel asks you to **create the owner account**. To prove
+it's you and not someone else on your network, it wants the setup code from
+the log:
+
+```bash
+docker logs blockheads 2>&1 | grep -i "setup code"
+```
+
+(Upgrading from a version with a single panel password? That password is the
+setup code.) A short setup guide follows: your gamertag, how consoles join,
+your servers, and a checklist. You stay signed in on each browser for 30 days
+after you last used it.
+
+**Forgot the password?** Run `docker exec blockheads blockheads reset-password`
+and choose "Forgot your password?" on the sign-in page. The code works once,
+for an hour, and signs out every browser.
 
 `--stop-timeout 60` gives game servers time to save their worlds when the
 container stops.
@@ -181,7 +199,7 @@ apply without a restart.
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `LIST_IP` | (required) | The container's IP. The DNS hands it to consoles, and the menu sends them to the panel's servers there |
-| `PANEL_PASSWORD` | generated | Password for the web panel. If unset, one is created and saved in `/data/panel-password` |
+| `PANEL_PASSWORD` | empty | Only used before the owner account exists, as the setup code (older versions used it as the panel password) |
 | `WEB_PORT` | `8443` | Web panel port |
 | `WEB_TLS` | `true` | Serve the panel over HTTPS with a self-signed certificate. `false` for plain HTTP behind your own reverse proxy |
 | `STOP_TIMEOUT` | `30` | Seconds a game server gets to save and stop before it's forced |

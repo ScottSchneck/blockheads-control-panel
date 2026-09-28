@@ -19,6 +19,9 @@ async function api(path, options = {}) {
   });
   let body = null;
   try { body = await res.json(); } catch (_) { /* empty */ }
+  if (res.status === 401 && !path.startsWith("/api/auth/")) {
+    signedOut(); // the session ended (signed out elsewhere, or expired)
+  }
   if (!res.ok) throw new Error((body && body.error) || res.statusText);
   return body;
 }
@@ -84,8 +87,10 @@ function confirmUpdate(s) {
 }
 
 async function refresh() {
+  if (!signedIn) return;
   try {
     const list = await api("/api/servers");
+    if (!signedIn) return; // signed out while this was loading
     importsFinished(list);
     $("servers").replaceChildren(...list.map(renderServer));
     $("empty").hidden = list.length > 0;
@@ -94,6 +99,7 @@ async function refresh() {
       if (s) $("detail-name").textContent = s.name;
     }
   } catch (err) {
+    if (!signedIn) return;
     $("servers").replaceChildren(el("p", { class: "error" }, "Can't reach the panel: " + err.message));
   }
 }
@@ -758,11 +764,291 @@ $("import-toggle").addEventListener("click", () => {
 });
 $("import-close").addEventListener("click", () => { $("import-box").hidden = true; });
 
+// ---- signing in ----
+
+let signedIn = false;
+let timers = [];
+
+function showOnly(formId) {
+  for (const id of ["setup-form", "login-form", "reset-form"]) $(id).hidden = id !== formId;
+  const first = $(formId).querySelector("input");
+  if (first) first.focus();
+}
+
+function formError(id, err) {
+  $(id).textContent = err ? err.message : "";
+  $(id).hidden = !err;
+}
+
+async function start() {
+  let st;
+  try {
+    st = await api("/api/auth/state");
+  } catch (err) {
+    // Try again shortly (the container may be restarting).
+    $("auth-view").hidden = false;
+    for (const id of ["setup-form", "login-form", "reset-form"]) $(id).hidden = true;
+    let note = $("auth-offline");
+    if (!note) {
+      note = el("p", { id: "auth-offline", class: "card error" });
+      $("auth-view").prepend(note);
+    }
+    note.textContent = "Can't reach the panel (" + err.message + "). Trying again…";
+    note.hidden = false;
+    setTimeout(start, 3000);
+    return;
+  }
+  if ($("auth-offline")) $("auth-offline").hidden = true;
+  $("version").textContent = st.version || "";
+  if (st.mode === "signedIn") {
+    enterApp(st);
+    return;
+  }
+  $("auth-view").hidden = false;
+  $("app-view").hidden = true;
+  $("account-toggle").hidden = true;
+  if (st.mode === "setup") {
+    $("setup-code-help").replaceChildren(st.usesOldPassword
+      ? (st.oldPasswordFromEnv
+        ? "Type the panel password you used before (the PANEL_PASSWORD setting). After this, it isn't used any more; you can remove it from the docker run command."
+        : "Type the panel password you used before (it's in /data/panel-password). After this, it isn't used any more.")
+      : "It's in the container log. On the Unraid server, run: docker logs blockheads 2>&1 | grep -i \"setup code\"");
+    showOnly("setup-form");
+  } else {
+    showOnly("login-form");
+  }
+}
+
+function enterApp(st) {
+  signedIn = true;
+  $("auth-view").hidden = true;
+  $("app-view").hidden = false;
+  $("account-toggle").hidden = false;
+  $("account-toggle").textContent = st.username + " ▾";
+  $("account-name").textContent = st.username;
+  $("reset-user").value = st.username;
+  api("/api/settings").then((s) => { settings = s || {}; }).catch(() => {});
+  refresh();
+  timers.forEach(clearInterval);
+  timers = [
+    setInterval(refresh, 2000),
+    setInterval(() => { if (selected && tab === "players" && !document.hidden) loadPlayers(); }, 3000),
+    setInterval(() => { if (selected && tab === "backups" && !document.hidden) loadBackups(); }, 3000),
+  ];
+  if (!st.setupDone) openGuide(1);
+}
+
+// signedOut goes back to the sign-in page and forgets what was on screen.
+function signedOut() {
+  if (!signedIn) return;
+  signedIn = false;
+  timers.forEach(clearInterval);
+  timers = [];
+  closeConsole();
+  resetSettings();
+  resetBackups();
+  selected = null;
+  settings = {};
+  guideInfo = null;
+  gamertagWarned = false;
+  for (const id of ["detail", "account-box", "guide", "import-box", "add-form", "password-msg"]) $(id).hidden = true;
+  for (const f of ["password-form", "add-form"]) $(f).reset();
+  for (const id of ["servers", "online", "allowlist", "operators", "attempts", "console-log", "import-list", "import-results", "guide-checklist"]) $(id).replaceChildren();
+  start();
+}
+
+$("setup-form").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  if ($("setup-pass").value !== $("setup-pass2").value) {
+    formError("setup-error", new Error("The two passwords aren't the same."));
+    return;
+  }
+  try {
+    await post("/api/auth/setup", { code: $("setup-code").value, username: $("setup-user").value, password: $("setup-pass").value });
+    $("setup-form").reset();
+    formError("setup-error", null);
+    start();
+  } catch (err) { formError("setup-error", err); }
+});
+
+$("login-form").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  try {
+    await post("/api/auth/login", { username: $("login-user").value, password: $("login-pass").value });
+    $("login-pass").value = "";
+    formError("login-error", null);
+    start();
+  } catch (err) {
+    $("login-pass").value = "";
+    formError("login-error", err);
+  }
+});
+
+$("forgot-link").addEventListener("click", (ev) => { ev.preventDefault(); showOnly("reset-form"); });
+$("reset-back").addEventListener("click", () => showOnly("login-form"));
+$("reset-form").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  if ($("reset-pass").value !== $("reset-pass2").value) {
+    formError("reset-error", new Error("The two passwords aren't the same."));
+    return;
+  }
+  try {
+    await post("/api/auth/reset", { code: $("reset-code").value, password: $("reset-pass").value });
+    $("reset-form").reset();
+    formError("reset-error", null);
+    start();
+  } catch (err) { formError("reset-error", err); }
+});
+
+// ---- account ----
+
+$("account-toggle").addEventListener("click", () => {
+  $("account-box").hidden = !$("account-box").hidden;
+  if (!$("account-box").hidden) $("account-box").scrollIntoView({ behavior: "smooth" });
+});
+$("account-close").addEventListener("click", () => { $("account-box").hidden = true; });
+$("logout").addEventListener("click", async () => {
+  try { await post("/api/auth/logout"); } catch (_) { /* signed out anyway */ }
+  signedOut();
+});
+$("logout-all").addEventListener("click", async () => {
+  if (!confirm("Sign out on every browser and phone, including this one?")) return;
+  try { await post("/api/auth/logout-all"); } catch (_) { /* signed out anyway */ }
+  signedOut();
+});
+$("password-form").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const msg = $("password-msg");
+  msg.hidden = false;
+  if ($("pw-new").value !== $("pw-new2").value) {
+    msg.className = "small error";
+    msg.textContent = "The two new passwords aren't the same.";
+    return;
+  }
+  try {
+    await post("/api/auth/password", { current: $("pw-current").value, new: $("pw-new").value });
+    $("password-form").reset();
+    msg.className = "small ok";
+    msg.textContent = "Password changed. Other browsers were signed out.";
+  } catch (err) {
+    msg.className = "small error";
+    msg.textContent = err.message;
+  }
+});
+$("guide-open").addEventListener("click", () => { $("account-box").hidden = true; openGuide(1); });
+
+// ---- setup guide ----
+
+let guideStep = 1;
+let guideInfo = null;
+let gamertagWarned = false;
+
+async function openGuide(step) {
+  $("guide").hidden = false;
+  try {
+    guideInfo = await api("/api/setup-guide");
+  } catch (err) { return; }
+  $("guide-gamertag").value = guideInfo.ownerGamertag || settings.ownerGamertag || "";
+  $("guide-list-name").textContent = guideInfo.listName || "Server List";
+  $("guide-list-ip").textContent = guideInfo.listIP || "the panel's IP";
+  const n = guideInfo.servers;
+  $("guide-everywhere-label").hidden = n === 0;
+  $("guide-everywhere-text").textContent = `Also add me to the allowlist and make me an operator on the ${n} server${n === 1 ? "" : "s"} I already have`;
+  $("guide-gamertag-msg").hidden = true;
+  showGuideStep(step);
+  $("guide").scrollIntoView({ behavior: "smooth" });
+}
+
+function showGuideStep(step) {
+  guideStep = step;
+  for (const p of document.querySelectorAll(".guide-pane")) p.hidden = Number(p.dataset.step) !== step;
+  for (const li of document.querySelectorAll("#guide-steps li")) {
+    const n = Number(li.dataset.step);
+    li.className = n === step ? "current" : (n < step ? "done" : "");
+  }
+  $("guide-step-label").textContent = `step ${step} of 4`;
+  $("guide-back").disabled = step === 1;
+  $("guide-next").textContent = step === 4 ? "Finish" : (step === 1 ? "Save and continue" : "Next");
+  if (step === 3) renderGuideServers();
+  if (step === 4) renderChecklist();
+}
+
+function renderGuideServers() {
+  const g = guideInfo;
+  const parts = [];
+  parts.push(g.servers === 0 ? "You don't have any servers yet." : `You have ${g.servers} server${g.servers === 1 ? "" : "s"} in the panel.`);
+  if (g.importWaiting > 0) parts.push(` ${g.importWaiting} server${g.importWaiting === 1 ? " is" : "s are"} in the import folder and not imported yet.`);
+  else if (!g.importMounted && g.servers === 0) parts.push(" To bring servers over from Crafty, mount its servers folder at /import (see the README), or add a new one.");
+  $("guide-servers-text").textContent = parts.join("");
+  $("guide-import").hidden = !(g.importMounted && g.importWaiting > 0);
+  $("guide-add").hidden = g.servers > 0 && g.importWaiting === 0;
+}
+
+function checkItem(ok, text) {
+  return el("li", { class: ok ? "ok" : "todo" }, el("span", { class: "mark", "aria-hidden": "true" }, ok ? "✓" : "!"), el("span", {}, text));
+}
+
+async function renderChecklist() {
+  try { guideInfo = await api("/api/setup-guide"); } catch (_) { /* keep the last one */ }
+  const g = guideInfo;
+  const items = [checkItem(true, "Owner account created.")];
+  items.push(g.ownerGamertag
+    ? checkItem(true, `Your gamertag is ${g.ownerGamertag}.`)
+    : checkItem(false, "Add your gamertag in step 1 so you're never locked out of your own servers."));
+  items.push(g.timeZoneIsUTC
+    ? checkItem(false, "The panel's clock is on UTC, so a 4 am backup would run at the wrong time. Add -e TZ=America/Denver (or your time zone) to the docker run command.")
+    : checkItem(true, `Time zone: ${g.timeZone}.`));
+  if (g.backupsOff.length) items.push(checkItem(false, `Automatic backups are off for: ${g.backupsOff.join(", ")}.`));
+  if (g.neverBackedUp.length) items.push(checkItem(false, `Not backed up yet: ${g.neverBackedUp.join(", ")}. The first automatic backup runs within a minute or two; or press Back up now on its Backups tab.`));
+  if (!g.backupsOff.length && !g.neverBackedUp.length && g.servers > 0) items.push(checkItem(true, "Every server has a backup and a schedule."));
+  if (g.importMounted && g.importWaiting === 0 && g.servers > 0) {
+    items.push(checkItem(true, "Everything in the import folder is imported. Once you're happy, stop the servers in Crafty for good and remove the /import line from the docker run command."));
+  } else if (g.importWaiting > 0) {
+    items.push(checkItem(false, `${g.importWaiting} server${g.importWaiting === 1 ? " is" : "s are"} waiting in the import folder.`));
+  }
+  items.push(checkItem(true, `Bookmark ${location.origin} on your phone; the panel works there too.`));
+  $("guide-checklist").replaceChildren(...items);
+}
+
+async function finishGuide() {
+  try { await post("/api/setup-guide/done", { done: true }); } catch (_) { /* shown again next time */ }
+  $("guide").hidden = true;
+}
+
+$("guide-back").addEventListener("click", () => showGuideStep(Math.max(1, guideStep - 1)));
+$("guide-skip").addEventListener("click", finishGuide);
+$("guide-next").addEventListener("click", async () => {
+  if (guideStep === 1) {
+    const name = $("guide-gamertag").value.trim();
+    if (name) {
+      const msg = $("guide-gamertag-msg");
+      try {
+        const r = await post("/api/setup-guide/gamertag", { gamertag: name, everywhere: $("guide-everywhere").checked });
+        settings.ownerGamertag = name;
+        guideInfo.ownerGamertag = name;
+        if (r.skipped.length && !gamertagWarned) {
+          gamertagWarned = true;
+          msg.hidden = false;
+          msg.className = "small error";
+          msg.textContent = "Saved, but some servers were skipped: " + r.skipped.join("; ") + ". Press the button again to carry on.";
+          return; // let them read it; Next again moves on
+        }
+      } catch (err) {
+        msg.hidden = false;
+        msg.className = "small error";
+        msg.textContent = err.message;
+        return;
+      }
+    }
+    showGuideStep(2);
+    return;
+  }
+  if (guideStep === 4) { finishGuide(); return; }
+  showGuideStep(guideStep + 1);
+});
+$("guide-import").addEventListener("click", () => { $("import-toggle").click(); $("import-box").scrollIntoView({ behavior: "smooth" }); });
+$("guide-add").addEventListener("click", () => { $("add-toggle").click(); $("add-form").scrollIntoView({ behavior: "smooth" }); });
+
 // ---- start ----
 
-api("/api/info").then((i) => { $("version").textContent = i.version; }).catch(() => {});
-api("/api/settings").then((s) => { settings = s || {}; }).catch(() => {});
-refresh();
-setInterval(refresh, 2000);
-setInterval(() => { if (selected && tab === "players" && !document.hidden) loadPlayers(); }, 3000);
-setInterval(() => { if (selected && tab === "backups" && !document.hidden) loadBackups(); }, 3000);
+start();

@@ -21,6 +21,7 @@ import (
 	"time"
 	_ "time/tzdata" // TZ works even without the system's time zone files
 
+	"github.com/ScottSchneck/blockheads-control-panel/internal/auth"
 	"github.com/ScottSchneck/blockheads-control-panel/internal/serverlist"
 	"github.com/ScottSchneck/blockheads-control-panel/internal/servers"
 	"github.com/ScottSchneck/blockheads-control-panel/internal/web"
@@ -31,10 +32,18 @@ var version = "dev"
 
 func main() {
 	showVersion := flag.Bool("version", false, "print the version and exit")
+	flag.Usage = func() {
+		fmt.Fprintln(os.Stderr, "usage: blockheads [-version]")
+		fmt.Fprintln(os.Stderr, "       blockheads reset-password   make a code to set a new owner password")
+		flag.PrintDefaults()
+	}
 	flag.Parse()
 	if *showVersion {
 		fmt.Println("blockheads", version)
 		return
+	}
+	if flag.Arg(0) == "reset-password" {
+		os.Exit(resetPassword())
 	}
 
 	cfg, err := serverlist.LoadConfig()
@@ -100,6 +109,7 @@ func main() {
 		Password: os.Getenv("PANEL_PASSWORD"),
 		DataDir:  cfg.DataDir,
 		HostIP:   cfg.ListIP.String(),
+		ListName: cfg.ListName,
 		Version:  version,
 	}, mgr)
 	if err != nil {
@@ -135,6 +145,22 @@ func main() {
 	mgr.StopAll()
 	wg.Wait()
 	os.Exit(exitCode)
+}
+
+// resetPassword makes a one-time code for setting a new owner password. Run
+// it inside the container: docker exec blockheads blockheads reset-password
+func resetPassword() int {
+	dir := envOr("DATA_DIR", "/data")
+	code, err := auth.WriteResetCode(dir)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "couldn't make a reset code:", err)
+		return 1
+	}
+	fmt.Println("Reset code:", code)
+	fmt.Println()
+	fmt.Println("Open the panel, choose \"Forgot your password?\" and enter this code with a new")
+	fmt.Println("password. It works once. Every browser is signed out when it's used.")
+	return 0
 }
 
 func envInt(key string, def int) (int, error) {

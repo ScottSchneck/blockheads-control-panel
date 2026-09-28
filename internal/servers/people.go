@@ -110,6 +110,8 @@ type Settings struct {
 	// OwnerGamertag is added to the allowlist and made an operator on
 	// every new server.
 	OwnerGamertag string `json:"ownerGamertag,omitempty"`
+	// SetupDone is set when the owner finishes (or skips) the setup guide.
+	SetupDone bool `json:"setupDone,omitempty"`
 }
 
 func (m *Manager) settingsPath() string { return filepath.Join(m.opts.DataDir, "panel-settings.json") }
@@ -133,13 +135,22 @@ func (m *Manager) SetOwnerGamertag(name string) error {
 			return err
 		}
 	}
+	return m.changeSettings(func(s *Settings) { s.OwnerGamertag = strings.TrimSpace(name) })
+}
+
+// SetSetupDone records whether the setup guide is finished.
+func (m *Manager) SetSetupDone(done bool) error {
+	return m.changeSettings(func(s *Settings) { s.SetupDone = done })
+}
+
+func (m *Manager) changeSettings(change func(*Settings)) error {
 	m.settingsMu.Lock()
 	defer m.settingsMu.Unlock()
 	var s Settings
 	if b, err := os.ReadFile(m.settingsPath()); err == nil {
 		_ = json.Unmarshal(b, &s)
 	}
-	s.OwnerGamertag = strings.TrimSpace(name)
+	change(&s)
 	b, _ := json.MarshalIndent(s, "", "  ")
 	if err := os.WriteFile(m.settingsPath()+".tmp", b, 0o644); err != nil {
 		return err

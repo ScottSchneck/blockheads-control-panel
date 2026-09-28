@@ -1,8 +1,8 @@
 // Package web serves the panel's web page and its API.
 //
-// This is the first, bare-bones page: a list of servers with start, stop,
-// update and a live console. Sign-in is a single panel password for now; user
-// accounts and roles come later in phase 1.
+// Sign-in is the owner account from package auth, with a session cookie.
+// The page itself (HTML, script, styles) is public; every API call except
+// sign-in needs a session.
 package web
 
 import (
@@ -10,12 +10,10 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
-	"crypto/subtle"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"embed"
-	"encoding/base32"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
@@ -30,6 +28,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ScottSchneck/blockheads-control-panel/internal/auth"
 	"github.com/ScottSchneck/blockheads-control-panel/internal/servers"
 )
 
@@ -40,54 +39,57 @@ var static embed.FS
 type Options struct {
 	Port     int    // 8443 by default
 	TLS      bool   // serve HTTPS with a self-signed certificate
-	Password string // from PANEL_PASSWORD; generated and saved if empty
+	Password string // PANEL_PASSWORD from before accounts; accepted as the setup code
 	DataDir  string
 	HostIP   string // the container's LAN IP, added to the certificate
+	ListName string // what consoles show under LAN Games
 	Version  string
 }
 
 // Server is the panel's web server.
 type Server struct {
-	opts     Options
-	mgr      *servers.Manager
-	password string
-	log      *slog.Logger
+	opts Options
+	mgr  *servers.Manager
+	auth *auth.Store
+	log  *slog.Logger
 }
 
-// New prepares the web server, loading or creating the panel password.
+// New prepares the web server and the owner account store.
 func New(opts Options, mgr *servers.Manager) (*Server, error) {
 	if opts.Port == 0 {
 		opts.Port = 8443
 	}
 	s := &Server{opts: opts, mgr: mgr, log: slog.Default().With("src", "web")}
-	pw, err := s.loadPassword()
+	// Before accounts, the panel had one shared password. Until the owner
+	// account exists it works as the setup code.
+	legacy := opts.Password
+	if legacy == "" {
+		if b, err := os.ReadFile(filepath.Join(opts.DataDir, "panel-password")); err == nil {
+			legacy = strings.TrimSpace(string(b))
+		}
+	}
+	store, err := auth.Open(opts.DataDir, legacy)
 	if err != nil {
 		return nil, err
 	}
-	s.password = pw
+	s.auth = store
+	code, usesOld, err := store.EnsureSetupCode()
+	if err != nil {
+		return nil, fmt.Errorf("couldn't make a setup code: %w", err)
+	}
+	url := fmt.Sprintf("https://%s:%d", hostOr(opts.HostIP), opts.Port)
+	if !opts.TLS {
+		url = fmt.Sprintf("http://%s:%d", hostOr(opts.HostIP), opts.Port)
+	}
+	switch {
+	case usesOld:
+		s.log.Warn("open the panel to create the owner account; the setup code is your old panel password", "url", url)
+	case code != "":
+		s.log.Warn("open the panel to create the owner account", "url", url, "setup code", code)
+	case store.ResetPending():
+		s.log.Warn("a password reset is waiting; open the panel and choose \"Forgot your password?\"", "url", url)
+	}
 	return s, nil
-}
-
-func (s *Server) loadPassword() (string, error) {
-	if s.opts.Password != "" {
-		return s.opts.Password, nil
-	}
-	path := filepath.Join(s.opts.DataDir, "panel-password")
-	if b, err := os.ReadFile(path); err == nil && strings.TrimSpace(string(b)) != "" {
-		pw := strings.TrimSpace(string(b))
-		s.log.Info("panel password is in the data folder", "file", path)
-		return pw, nil
-	}
-	buf := make([]byte, 10)
-	if _, err := rand.Read(buf); err != nil {
-		return "", err
-	}
-	pw := strings.ToLower(base32.StdEncoding.EncodeToString(buf)) // 16 letters and digits
-	if err := os.WriteFile(path, []byte(pw+"\n"), 0o600); err != nil {
-		return "", fmt.Errorf("couldn't save the panel password: %w", err)
-	}
-	s.log.Warn("created a panel password; sign in with any username and this password (set PANEL_PASSWORD to choose your own)", "password", pw, "savedIn", path)
-	return pw, nil
 }
 
 // Run serves until ctx is cancelled.
@@ -148,37 +150,58 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/servers/{id}/console", s.console)
 	s.playerRoutes(mux)
 	s.settingsRoutes(mux)
+	s.authRoutes(mux)
 	s.importRoutes(mux)
 	s.backupRoutes(mux)
 	return s.secure(mux)
 }
 
-// secure checks the panel password and blocks cross-site requests.
+// cookieName is the session cookie's name. Over HTTPS the __Host- prefix
+// makes browsers refuse it unless it's secure and for this whole site, so
+// nothing else on the same host can set or shadow it.
+func (s *Server) cookieName() string {
+	if s.opts.TLS {
+		return "__Host-bh_session"
+	}
+	return "bh_session"
+}
+
+// publicAPI can be used without signing in.
+var publicAPI = map[string]bool{
+	"/api/auth/state": true, "/api/auth/setup": true, "/api/auth/login": true, "/api/auth/reset": true,
+}
+
+// secure checks the session and blocks cross-site requests.
 func (s *Server) secure(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'")
-		_, pw, ok := r.BasicAuth()
-		if !ok || subtle.ConstantTimeCompare([]byte(pw), []byte(s.password)) != 1 {
-			if ok {
-				s.log.Warn("wrong panel password", "from", r.RemoteAddr)
-				time.Sleep(time.Second) // slow down guessing
-			}
-			w.Header().Set("WWW-Authenticate", `Basic realm="Blockheads Control Panel", charset="UTF-8"`)
-			http.Error(w, "Sign in with any username and the panel password.", http.StatusUnauthorized)
-			return
-		}
 		// A custom header can't be sent cross-site without the browser asking
 		// first, and we never allow that, so other websites can't press
-		// buttons with the saved password.
+		// buttons (or sign you in to their account) through your browser.
 		if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Header.Get("X-Blockheads") != "1" {
 			http.Error(w, "missing X-Blockheads header", http.StatusForbidden)
 			return
 		}
+		if strings.HasPrefix(r.URL.Path, "/api/") && !publicAPI[r.URL.Path] {
+			if s.user(r) == "" {
+				writeError(w, http.StatusUnauthorized, errors.New("sign in first"))
+				return
+			}
+		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// user returns who's signed in on this request ("" for nobody).
+func (s *Server) user(r *http.Request) string {
+	c, err := r.Cookie(s.cookieName())
+	if err != nil {
+		return ""
+	}
+	return s.auth.Check(c.Value)
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
@@ -307,6 +330,9 @@ func (s *Server) console(w http.ResponseWriter, r *http.Request) {
 			send(l)
 			flusher.Flush()
 		case <-keepAlive.C:
+			if s.user(r) == "" {
+				return // signed out meanwhile
+			}
 			fmt.Fprint(w, ": keep-alive\n\n")
 			flusher.Flush()
 		}

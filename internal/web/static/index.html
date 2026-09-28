@@ -10,9 +10,139 @@
 <header>
   <h1>Blockheads Control Panel</h1>
   <span id="version" class="muted"></span>
+  <span class="spacer"></span>
+  <button id="account-toggle" class="plain" hidden></button>
 </header>
 
-<main>
+<!-- Signing in, first-time setup and password reset. -->
+<section id="auth-view" class="auth" hidden>
+  <form id="setup-form" class="card" hidden>
+    <h2>Welcome! Create the owner account</h2>
+    <p class="muted small">The owner can do everything in the panel. You'll sign in with this name and password from now on.</p>
+    <label>Setup code
+      <input id="setup-code" autocomplete="off" autocapitalize="off" autocorrect="off" required spellcheck="false">
+    </label>
+    <p id="setup-code-help" class="muted small"></p>
+    <label>Username
+      <input id="setup-user" maxlength="32" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false" required>
+    </label>
+    <label>Password
+      <input id="setup-pass" type="password" minlength="8" autocomplete="new-password" required>
+    </label>
+    <label>Password again
+      <input id="setup-pass2" type="password" minlength="8" autocomplete="new-password" required>
+    </label>
+    <button type="submit" class="primary">Create account</button>
+    <p id="setup-error" class="error" hidden></p>
+  </form>
+
+  <form id="login-form" class="card" hidden>
+    <h2>Sign in</h2>
+    <label>Username
+      <input id="login-user" maxlength="32" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false" required>
+    </label>
+    <label>Password
+      <input id="login-pass" type="password" autocomplete="current-password" required>
+    </label>
+    <button type="submit" class="primary">Sign in</button>
+    <p id="login-error" class="error" hidden></p>
+    <p class="small"><a href="#" id="forgot-link">Forgot your password?</a></p>
+  </form>
+
+  <form id="reset-form" class="card" hidden>
+    <h2>Set a new password</h2>
+    <p class="muted small">On the Unraid server, run this and type the code it prints:</p>
+    <code class="block">docker exec blockheads blockheads reset-password</code>
+    <input id="reset-user" type="text" autocomplete="username" hidden aria-hidden="true" tabindex="-1">
+    <label>Reset code
+      <input id="reset-code" autocomplete="off" autocapitalize="off" autocorrect="off" required spellcheck="false">
+    </label>
+    <label>New password
+      <input id="reset-pass" type="password" minlength="8" autocomplete="new-password" required>
+    </label>
+    <label>New password again
+      <input id="reset-pass2" type="password" minlength="8" autocomplete="new-password" required>
+    </label>
+    <div class="row">
+      <button type="submit" class="primary">Set password</button>
+      <button type="button" id="reset-back">Back to sign in</button>
+    </div>
+    <p id="reset-error" class="error" hidden></p>
+  </form>
+</section>
+
+<main id="app-view" hidden>
+  <section id="account-box" class="card" hidden>
+    <div class="row between">
+      <h3>Signed in as <span id="account-name"></span></h3>
+      <button type="button" id="account-close">Close</button>
+    </div>
+    <div class="row">
+      <button id="guide-open">Setup guide</button>
+      <button id="logout">Sign out</button>
+      <button id="logout-all">Sign out everywhere</button>
+    </div>
+    <form id="password-form">
+      <h3>Change password</h3>
+      <p class="muted small">Other browsers are signed out when you change it.</p>
+      <div class="row">
+        <input id="pw-current" type="password" placeholder="Current password" autocomplete="current-password" required aria-label="Current password">
+        <input id="pw-new" type="password" minlength="8" placeholder="New password" autocomplete="new-password" required aria-label="New password">
+        <input id="pw-new2" type="password" minlength="8" placeholder="New password again" autocomplete="new-password" required aria-label="New password again">
+        <button type="submit" class="primary">Change</button>
+      </div>
+      <p id="password-msg" class="small" hidden></p>
+    </form>
+  </section>
+
+  <section id="guide" class="card guide" hidden>
+    <div class="row between">
+      <h2>Setup guide <span id="guide-step-label" class="muted small"></span></h2>
+      <button type="button" id="guide-skip">Skip for now</button>
+    </div>
+    <ol class="steps" id="guide-steps">
+      <li data-step="1">Your gamertag</li>
+      <li data-step="2">Joining from consoles</li>
+      <li data-step="3">Your servers</li>
+      <li data-step="4">Checklist</li>
+    </ol>
+
+    <div class="guide-pane" data-step="1">
+      <p>Your Xbox gamertag goes on the allowlist and becomes an operator on every server you add, so you can always get in.</p>
+      <label>Gamertag
+        <input id="guide-gamertag" maxlength="32" autocomplete="off" placeholder="e.g. Kemikal Halo">
+      </label>
+      <label class="check" id="guide-everywhere-label">
+        <input id="guide-everywhere" type="checkbox" checked>
+        <span id="guide-everywhere-text">Also add me to the servers I already have</span>
+      </label>
+      <p id="guide-gamertag-msg" class="small" hidden></p>
+    </div>
+
+    <div class="guide-pane" data-step="2">
+      <p><b>At home, the easy way:</b> open Minecraft, go to <b>Play → Friends</b>, and under <b>LAN Games</b> pick <b id="guide-list-name"></b>. Then pick a server. A PS5 finds it this way with no other setup.</p>
+      <p><b>If it isn't there</b> (or on an Xbox or Switch): set the console's DNS to <b id="guide-list-ip"></b>, restart the console, open Minecraft, go to <b>Servers</b> and join any featured server, such as The Hive. You'll land in the menu of your servers.</p>
+      <p class="muted small">Players still need to be on a server's allowlist; anyone the menu sends in who isn't shows up under <b>Tried to join</b> on that server's Players tab, with an Allow button.</p>
+    </div>
+
+    <div class="guide-pane" data-step="3">
+      <p id="guide-servers-text"></p>
+      <div class="row">
+        <button type="button" id="guide-import" hidden>Import from Crafty</button>
+        <button type="button" id="guide-add" hidden>Add a server</button>
+      </div>
+    </div>
+
+    <div class="guide-pane" data-step="4">
+      <ul id="guide-checklist" class="checklist"></ul>
+    </div>
+
+    <div class="row guide-nav">
+      <button type="button" id="guide-back">Back</button>
+      <button type="button" id="guide-next" class="primary">Next</button>
+    </div>
+  </section>
+
   <section>
     <div class="section-head">
       <h2>Servers</h2>
