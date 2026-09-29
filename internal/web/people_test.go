@@ -1,9 +1,12 @@
 package web
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -284,5 +287,72 @@ func TestOutsideAccessPermissions(t *testing.T) {
 	}
 	if w := call(h, "POST", "/api/servers/ava/allowlist-enabled", `{"enabled":false}`, owner); w.Code == 200 {
 		t.Error("allowlist turned off while open")
+	}
+}
+
+func TestAddonRoutes(t *testing.T) {
+	s, dir := newTestServer(t)
+	addTestServer(t, s, dir, "ava", "Ava's Server", 19140)
+	wd := filepath.Join(dir, "servers", "ava", "worlds", "Bedrock level")
+	os.MkdirAll(filepath.Join(wd, "db"), 0o755)
+	os.WriteFile(filepath.Join(wd, "level.dat"), []byte("x"), 0o644)
+	h := s.routes()
+	owner := ownerCookie(s)
+	call(h, "POST", "/api/users", `{"username":"Ava","password":"ava password 1"}`, owner)
+	call(h, "POST", "/api/users", `{"username":"Sam","password":"sam password 1"}`, owner)
+	call(h, "PUT", "/api/users/Ava", `{"grants":{"ava":"care"}}`, owner)
+	call(h, "PUT", "/api/users/Sam", `{"grants":{"ava":"run"}}`, owner)
+	ava := sessionFrom(t, call(h, "POST", "/api/auth/login", `{"username":"Ava","password":"ava password 1"}`))
+	sam := sessionFrom(t, call(h, "POST", "/api/auth/login", `{"username":"Sam","password":"sam password 1"}`))
+
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	f, _ := zw.Create("manifest.json")
+	f.Write([]byte(`{"header":{"name":"Blocks","uuid":"66666666-2222-3333-4444-555555555555","version":[1,0,0]},"modules":[{"type":"resources"}]}`))
+	zw.Close()
+	pack := buf.String()
+
+	upload := func(path, body string, c *http.Cookie) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("POST", path, strings.NewReader(body))
+		r.Header.Set("X-Blockheads", "1")
+		r.Header.Set("X-File-Name", "blocks.mcpack")
+		r.AddCookie(c)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w
+	}
+	if w := upload("/api/servers/ava/packs", pack, sam); w.Code != 403 {
+		t.Errorf("run-level install: %d", w.Code)
+	}
+	if w := upload("/api/servers/ava/packs", pack, ava); w.Code != 200 {
+		t.Fatalf("install: %d %s", w.Code, w.Body)
+	}
+	if w := call(h, "GET", "/api/servers/ava/packs", "", sam); w.Code != 200 || !strings.Contains(w.Body.String(), `"name":"Blocks"`) {
+		t.Errorf("list: %d %s", w.Code, w.Body)
+	}
+	for _, c := range []struct {
+		who          *http.Cookie
+		method, path string
+		want         int
+	}{
+		{sam, "POST", "/api/servers/ava/packs/66666666-2222-3333-4444-555555555555", 403},
+		{sam, "DELETE", "/api/servers/ava/packs/66666666-2222-3333-4444-555555555555", 403},
+		{sam, "GET", "/api/servers/ava/worlds/Bedrock%20level/download", 403},
+		{ava, "DELETE", "/api/servers/ava/worlds/Other", 403},
+		{sam, "GET", "/api/servers/ava/worlds", 200},
+	} {
+		if w := call(h, c.method, c.path, `{"enabled":false}`, c.who); w.Code != c.want {
+			t.Errorf("%s %s: %d, want %d", c.method, c.path, w.Code, c.want)
+		}
+	}
+	w := call(h, "GET", "/api/servers/ava/worlds/Bedrock%20level/download", "", ava)
+	if w.Code != 200 || !strings.HasSuffix(w.Header().Get("Content-Disposition"), `.mcworld"`) {
+		t.Fatalf("download: %d %v %s", w.Code, w.Header(), w.Body)
+	}
+	if zr, err := zip.NewReader(bytes.NewReader(w.Body.Bytes()), int64(w.Body.Len())); err != nil || len(zr.File) == 0 {
+		t.Errorf("download isn't a world: %v", err)
+	}
+	if w := call(h, "GET", "/api/servers/ava/worlds/..%2F..%2Fx/download", "", ava); w.Code == 200 {
+		t.Error("downloaded a path")
 	}
 }

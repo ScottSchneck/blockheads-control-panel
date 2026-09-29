@@ -303,7 +303,7 @@ function renderDetailHead(s) {
   $("detail-actions").replaceChildren(...[startStopButton(s),
     el("button", { onclick: action(s.id, "restart"), disabled: !isLive(s) || busy }, "Restart"),
     access(s) >= CARE ? updBtn : null].filter(Boolean));
-  for (const t of ["players", "settings", "backups"]) $("tab-" + t).hidden = copying;
+  for (const t of ["players", "settings", "addons", "backups"]) $("tab-" + t).hidden = copying;
   $("ov-backups-link").textContent = access(s) >= CARE ? "Restore or download" : "See backups";
 }
 
@@ -385,7 +385,7 @@ function route() {
   }
   if (next === "server") {
     const id = parts[1];
-    const t = ["overview", "players", "settings", "backups", "console"].includes(parts[2]) ? parts[2] : "overview";
+    const t = ["overview", "players", "settings", "addons", "backups", "console"].includes(parts[2]) ? parts[2] : "overview";
     if (!id) { location.hash = "#/"; return; }
     const known = serverList.find((x) => x.id === id);
     if (known && access(known) < RUN) { location.hash = "#/"; return; }
@@ -395,6 +395,7 @@ function route() {
       closeOverviewConsole();
       resetSettings();
       resetBackups();
+      resetAddons();
       clearServerPanes();
       selected = id;
       $("detail-name").textContent = "";
@@ -404,7 +405,7 @@ function route() {
       if (s) renderDetailHead(s);
     }
     const s = serverList.find((x) => x.id === id);
-    const tabOK = !(s && s.state === "importing" && ["players", "settings", "backups"].includes(t));
+    const tabOK = !(s && s.state === "importing" && ["players", "settings", "addons", "backups"].includes(t));
     acceptedHash = location.hash;
     setView("server");
     showTab(tabOK ? t : "overview");
@@ -449,7 +450,7 @@ function setView(v) {
 
 function showTab(which) {
   tab = which;
-  for (const t of ["overview", "players", "settings", "backups", "console"]) {
+  for (const t of ["overview", "players", "settings", "addons", "backups", "console"]) {
     const a = $("tab-" + t);
     a.href = serverHref(selected, t);
     if (t === which) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
@@ -460,6 +461,7 @@ function showTab(which) {
   if (which === "console") openConsole();
   else if (which === "settings") { if (!settingsView || !settingsDirty()) loadSettings(); }
   else if (which === "backups") loadBackups();
+  else if (which === "addons") loadAddons();
   else if (which === "players") loadPlayers();
   else loadOverview();
 }
@@ -976,7 +978,7 @@ let backupsFor = null; // server ID the plan form belongs to
 let planDirty = false;
 const kindLabels = {
   scheduled: "Automatic", manual: "Made by hand",
-  "before-update": "Before an update", "before-restore": "Before a restore",
+  "before-update": "Before an update", "before-restore": "Before a restore", "before-delete": "Before deleting a world",
 };
 
 function resetBackups() {
@@ -1057,6 +1059,12 @@ function renderBackups(v, id) {
     return row(when, detail,
       el("a", { class: "button", href: `${sid()}/backups/${enc(b.name)}`, download: b.name }, "Download"),
       btn("Restore", () => {
+        if (b.kind === "before-delete") {
+          if (confirm(`Put back the world that was deleted on ${when}? It's added next to the other worlds; nothing else changes.`)) {
+            backupsCall(() => post(`${sid()}/backups/${enc(b.name)}/restore`));
+          }
+          return;
+        }
         const extra = b.full ? " This also puts back the server version from before that update (press Update to go forward again)." : "";
         if (confirm(`Put the world back as it was on ${when}?\n\nThe server stops, the current world is backed up first (so you can undo this), and it starts again if it was running.${extra}`)) {
           backupsCall(() => post(`${sid()}/backups/${enc(b.name)}/restore`));
@@ -1094,6 +1102,198 @@ $("plan-form").addEventListener("submit", (ev) => {
   });
 });
 $("backup-now").addEventListener("click", () => backupsCall(() => post(sid() + "/backups")));
+
+// ---- add-ons tab ----
+
+let addonsFor = null; // server ID the add-ons tab shows
+
+function showAddonsError(err) {
+  $("addons-error").textContent = err ? err.message : "";
+  $("addons-error").hidden = !err;
+}
+
+function resetAddons() {
+  addonsFor = null;
+  $("addons-list").replaceChildren();
+  $("worlds-list").replaceChildren();
+  $("addons-world").textContent = "";
+  $("addons-restart").hidden = true;
+  showAddonsError(null);
+}
+
+async function loadAddons() {
+  if (!selected) return;
+  const id = selected;
+  if (addonsFor !== id) resetAddons();
+  try {
+    const [packs, worlds] = await Promise.all([api(sid() + "/packs"), api(sid() + "/worlds")]);
+    if (id !== selected) return;
+    addonsFor = id;
+    renderAddons(packs, worlds);
+    showAddonsError(null);
+  } catch (err) { if (id === selected) showAddonsError(err); }
+}
+
+const mb1 = (bytes) => (bytes >= 1e9 ? (bytes / 1e9).toFixed(1) + " GB" : bytes >= 1e6 ? (bytes / 1e6).toFixed(1) + " MB" : Math.max(1, Math.round(bytes / 1e3)) + " KB");
+
+function addonsNeedRestart(running) {
+  $("addons-restart").hidden = !running;
+}
+
+function renderAddons(v, wv) {
+  const s = serverList.find((x) => x.id === selected);
+  const care = access(s) >= CARE;
+  for (const e of document.querySelectorAll("#pane-addons [data-care]")) e.hidden = !care;
+  $("addons-world").textContent = v.world;
+  const enc = encodeURIComponent;
+  $("addons-list").replaceChildren(...(v.packs.length ? v.packs.map((p) => {
+    const bits = [p.kind === "behavior" ? "Behavior pack" : "Resource pack"];
+    if (p.version) bits.push(p.version);
+    if (p.size) bits.push(mb1(p.size));
+    const name = el("span", { class: "who" }, el("span", {}, p.name,
+      p.enabled ? null : el("span", { class: "tag" }, "Off"),
+      p.missing ? el("span", { class: "tag warn" }, "Files missing") : null,
+      p.needsBeta ? el("span", { class: "tag warn", title: "Uses scripting that needs the world's Beta APIs experiment" }, "Needs Beta APIs") : null),
+      el("small", {}, bits.join(" · ") + (p.description ? " · " + p.description : "")),
+      p.needsBeta && care ? el("small", { class: "warn" }, "This add-on needs the Beta APIs experiment, which can't be turned on from the panel. Turn it on for the world in the game (Edit world, Experiments), then export the world and upload it below.") : null);
+    const buttons = [];
+    if (care) {
+      if (!p.missing) {
+        buttons.push(btn(p.enabled ? "Turn off" : "Turn on", () => addonsCall(async () => {
+          const nv = await post(`${sid()}/packs/${enc(p.uuid)}`, { enabled: !p.enabled });
+          addonsNeedRestart(nv.running);
+          return nv;
+        })));
+      }
+      buttons.push(btn("Remove", () => {
+        if (!confirm(`Remove ${p.name} from ${v.world}? Things in the world that came from it may disappear.`)) return;
+        addonsCall(async () => { const nv = await del(`${sid()}/packs/${enc(p.uuid)}`); addonsNeedRestart(nv.running); return nv; });
+      }, "danger"));
+    }
+    return el("li", { class: p.enabled ? "" : "off" }, name, ...buttons);
+  }) : [emptyRow(care ? "No add-ons yet. Drop one above." : "No add-ons in this world.")]));
+
+  const owner = me.owner;
+  $("worlds-list").replaceChildren(...wv.worlds.map((w) => {
+    const bits = [];
+    if (w.name && w.name !== w.folder) bits.push(w.name);
+    if (w.size) bits.push(mb1(w.size)); else if (w.current) bits.push("made when the server first starts");
+    if (w.packs) bits.push(`${w.packs} add-on pack${w.packs === 1 ? "" : "s"}`);
+    const buttons = [];
+    if (w.current) buttons.push(el("span", { class: "badge" }, "Playing"));
+    else {
+      buttons.push(btn("Play this world", () => {
+        const note = wv.running ? " The server restarts, so players are disconnected for a moment." : "";
+        if (!confirm(`Switch the server to ${w.folder}? The current world is kept.${note}`)) return;
+        addonsCall(async () => { await post(`${sid()}/worlds/${enc(w.folder)}/play`); return null; });
+      }));
+    }
+    if (care && w.size) buttons.push(el("a", { class: "button", href: `${sid()}/worlds/${enc(w.folder)}/download`, download: "" }, "Download"));
+    if (owner && !w.current) {
+      buttons.push(btn("Delete", () => {
+        if (!confirm(`Delete the world ${w.folder}? A backup of all the worlds is made first, so it can be put back from Backups.`)) return;
+        addonsCall(async () => { await del(`${sid()}/worlds/${enc(w.folder)}`); return null; });
+      }, "danger"));
+    }
+    return row(w.folder, bits.join(" · "), ...buttons);
+  }));
+}
+
+async function addonsCall(fn) {
+  const id = selected;
+  try {
+    await fn();
+    if (id === selected) showAddonsError(null);
+  } catch (err) { if (id === selected) showAddonsError(err); }
+  if (id === selected) loadAddons();
+  refresh();
+}
+
+// upload sends a file with progress shown in the drop box.
+function upload(box, url, file) {
+  return new Promise((resolve, reject) => {
+    const bar = box.querySelector(".upload-progress");
+    const progress = bar.querySelector("progress");
+    const label = bar.querySelector("span");
+    bar.hidden = false;
+    box.classList.add("busy");
+    progress.value = 0;
+    label.textContent = `Uploading ${file.name}…`;
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", url);
+    xhr.setRequestHeader("X-Blockheads", "1");
+    xhr.setRequestHeader("X-File-Name", encodeURIComponent(file.name));
+    xhr.upload.onprogress = (ev) => {
+      if (!ev.lengthComputable) return;
+      progress.value = Math.round((ev.loaded / ev.total) * 100);
+      label.textContent = ev.loaded >= ev.total ? "Unpacking and installing…" : `Uploading ${file.name}… ${mb1(ev.loaded)} of ${mb1(ev.total)}`;
+    };
+    const done = () => { bar.hidden = true; box.classList.remove("busy"); };
+    xhr.onload = () => {
+      done();
+      let body = null;
+      try { body = JSON.parse(xhr.responseText); } catch (_) { /* empty */ }
+      if (xhr.status === 401) { signedOut(); reject(new Error("Signed out")); return; }
+      if (xhr.status < 200 || xhr.status >= 300) { reject(new Error((body && body.error) || xhr.statusText || "Upload failed")); return; }
+      resolve(body);
+    };
+    xhr.onerror = () => { done(); reject(new Error("The upload was cut off. Check the connection and try again.")); };
+    xhr.send(file);
+  });
+}
+
+function dropZone(boxId, inputId, handle) {
+  const box = $(boxId);
+  const input = $(inputId);
+  input.addEventListener("change", () => { if (input.files[0]) handle(input.files[0]); input.value = ""; });
+  box.addEventListener("dragover", (ev) => { ev.preventDefault(); box.classList.add("over"); });
+  box.addEventListener("dragleave", () => box.classList.remove("over"));
+  box.addEventListener("drop", (ev) => {
+    ev.preventDefault();
+    box.classList.remove("over");
+    const f = ev.dataTransfer.files[0];
+    if (f) handle(f);
+  });
+}
+
+dropZone("addon-drop", "addon-file", async (file) => {
+  const id = selected;
+  try {
+    const res = await upload($("addon-drop"), `/api/servers/${encodeURIComponent(id)}/packs`, file);
+    if (id !== selected) return;
+    const names = res.installed.map((p) => p.name).join(", ");
+    const skipped = res.skipped.length ? `\n\nSkipped: ${res.skipped.join("; ")}` : "";
+    const beta = res.installed.some((p) => p.needsBeta) ? "\n\nSomething in it needs the Beta APIs experiment: see the note next to it." : "";
+    alert(`Installed ${names} in ${res.world}.${skipped}${beta}`);
+    addonsNeedRestart(res.running);
+    showAddonsError(null);
+  } catch (err) { if (id === selected) showAddonsError(err); }
+  if (id === selected) loadAddons();
+});
+
+dropZone("world-drop", "world-file", async (file) => {
+  const id = selected;
+  const play = $("world-play").checked;
+  if (play && !confirm(`Upload ${file.name} and switch the server to it? The current world is kept. If the server is running, it restarts.`)) return;
+  try {
+    const res = await upload($("world-drop"), `/api/servers/${encodeURIComponent(id)}/worlds?play=${play ? 1 : 0}`, file);
+    if (id !== selected) return;
+    alert(res.playing ? `Added ${res.world.folder}; the server plays it now.` : `Added ${res.world.folder}. Press "Play this world" to switch to it.`);
+    showAddonsError(null);
+  } catch (err) { if (id === selected) showAddonsError(err); }
+  if (id === selected) loadAddons();
+  refresh();
+});
+
+$("addons-restart-now").addEventListener("click", async () => {
+  $("addons-restart").hidden = true;
+  try { await post(sid() + "/restart"); } catch (err) { showAddonsError(err); }
+  refresh();
+});
+$("addons-restart-later").addEventListener("click", () => { $("addons-restart").hidden = true; });
+// Files dropped anywhere else would open in the browser and leave the panel.
+window.addEventListener("dragover", (ev) => ev.preventDefault());
+window.addEventListener("drop", (ev) => ev.preventDefault());
 
 // ---- import ----
 
@@ -1624,6 +1824,7 @@ function signedOut() {
   closeOverviewConsole();
   resetSettings();
   resetBackups();
+  resetAddons();
   selected = null;
   settings = {};
   me = { owner: false, canAdd: false, name: "" };

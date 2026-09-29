@@ -113,6 +113,10 @@ type Server struct {
 	retryScheduledAt  time.Time // after a failed scheduled backup
 	backupErr         string
 	playedSinceBackup bool
+	// playing is the world folder the running process loaded (level-name
+	// when it started), which may differ from server.properties after a
+	// change that hasn't been applied by a restart.
+	playing           string
 	lbTime, lbChecked time.Time // cached newest backup time (see lastBackup)
 }
 
@@ -362,6 +366,13 @@ func (s *Server) startLocked() error {
 	pw.Close()
 	commands := make(chan string, commandQueue)
 	s.cmd, s.commands, s.exited, s.stopping = cmd, commands, make(chan struct{}), false
+	s.playing = ""
+	if p, err := readProperties(s.propertiesPath()); err == nil {
+		s.playing, _ = p.get("level-name")
+	}
+	if strings.TrimSpace(s.playing) == "" {
+		s.playing = "Bedrock level"
+	}
 	s.state, s.message = StateStarting, ""
 	s.players = map[string]Player{}
 	s.m.log.Info("server starting", "id", s.meta.ID, "pid", cmd.Process.Pid)

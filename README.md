@@ -50,6 +50,10 @@ Switch players can join without extra apps.
   UPnP (or lists the forwards to add by hand), and writes an invite that tells
   a friend how to join from a PC, phone or console. See
   [Friends outside the house](#friends-outside-the-house).
+- **Worlds and add-ons.** Install add-ons (`.mcaddon` and `.mcpack` files
+  from CurseForge, MCPEDL or a creator's site), turn them on and off, upload
+  worlds exported from the game, switch worlds, and download a world to play
+  on a device. See [Worlds and add-ons](#worlds-and-add-ons).
 - **Accounts for the kids.** On the **People** page the owner gives each kid a
   sign-in and chooses, server by server, what they can do. See
   [People and roles](#people-and-roles).
@@ -194,6 +198,37 @@ the allowlist.
 Consoles outside only see the servers open to them in the list, and are sent
 to your hostname. The panel re-checks everything every minute, and closes the
 forwards it made when it stops.
+
+### Worlds and add-ons
+
+Each server has an **Add-ons** tab.
+
+**Add-ons.** Drop a `.mcaddon` or `.mcpack` file on it. Its behavior and
+resource packs are installed into the world the server plays (in the world's
+own `behavior_packs` and `resource_packs` folders) and turned on for it, as the
+game does when you add packs to a world. That way they go along with the
+world's backups and survive updates. Installing a newer version of a pack
+replaces the old one. Turn packs off or remove them from the same tab, then
+restart the server. Players' games download the packs when they join (set
+**Require the world's resource packs** in Settings to make that compulsory).
+
+Some add-ons use scripting that needs the world's **Beta APIs** experiment.
+The panel marks them; turn the experiment on for the world in the game (Edit
+world, Experiments), export the world and upload it. Marketplace add-ons are
+locked to the buyer's account and can't be used on a server.
+
+**Worlds.** A server keeps its worlds side by side and plays one at a time.
+Upload a `.mcworld` (in the game: Edit world, Export world) to add it, and
+optionally play it straight away; nothing is replaced. **Play this world**
+switches (and restarts a running server). **Download** gives a `.mcworld` to
+open on a phone, tablet or PC; a running server keeps running, the same as
+for a backup. Only the owner can delete a world, never the one being played,
+and a backup of all the worlds is made first ("Before deleting a world" in
+Backups).
+
+Who can do what: anyone who **runs** a server sees its add-ons and worlds and
+can switch worlds; installing, turning on and off, removing, uploading and
+downloading take someone who **takes care of** it.
 
 ### Moving from Crafty
 

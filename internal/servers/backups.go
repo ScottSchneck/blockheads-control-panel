@@ -84,7 +84,7 @@ func (p BackupPlan) due(last, now time.Time) bool {
 // Backup is one backup file.
 type Backup struct {
 	Name string    `json:"name"`
-	Kind string    `json:"kind"` // scheduled, manual, before-update, before-restore
+	Kind string    `json:"kind"` // scheduled, manual, before-update, before-restore, before-delete
 	Time time.Time `json:"time"`
 	Size int64     `json:"size"`
 	Full bool      `json:"full"` // holds the server files too
@@ -103,6 +103,7 @@ type BackupsView struct {
 
 const (
 	restoreBackups = 3 // before-restore backups kept
+	deleteBackups  = 5 // before-delete backups kept (made before a world is deleted)
 	holdTimeout    = 60 * time.Second
 )
 
@@ -110,7 +111,7 @@ var (
 	errBackupRunning = errors.New("a backup or restore is already running for this server")
 	errBadBackupName = errors.New("no such backup")
 	// The file name: <id>-YYYYMMDD-HHMMSS-<kind>.tar.gz
-	reBackupName = regexp.MustCompile(`^(.+)-(\d{8}-\d{6})-(scheduled|manual|before-update|before-restore)\.tar\.gz$`)
+	reBackupName = regexp.MustCompile(`^(.+)-(\d{8}-\d{6})-(scheduled|manual|before-update|before-restore|before-delete)\.tar\.gz$`)
 )
 
 // scheduleTick is how often the schedule is checked; tests shorten it.
@@ -320,6 +321,7 @@ func (s *Server) snapshot(ctx context.Context, held *exec.Cmd) (string, error) {
 			_ = os.RemoveAll(o)
 		}
 	}
+
 	snap, err := os.MkdirTemp(backupDir, ".snapshot-")
 	if err != nil {
 		return "", err
@@ -732,6 +734,14 @@ func (s *Server) Restore(name string) error {
 	archive, err := os.Open(path)
 	if err != nil {
 		return err
+	}
+	if strings.HasSuffix(name, "-before-delete.tar.gz") {
+		// Just a deleted world: it's put back next to the others.
+		defer archive.Close()
+		if err := s.EditBlocked(); err != nil {
+			return err
+		}
+		return s.restoreDeletedWorld(archive)
 	}
 	if !s.m.beginWork() {
 		archive.Close()

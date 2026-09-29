@@ -451,6 +451,7 @@
         <a id="tab-overview" href="#" data-tab="overview">Overview</a>
         <a id="tab-players" href="#" data-tab="players">Players</a>
         <a id="tab-settings" href="#" data-tab="settings">Settings</a>
+        <a id="tab-addons" href="#" data-tab="addons">Add-ons</a>
         <a id="tab-backups" href="#" data-tab="backups">Backups</a>
         <a id="tab-console" href="#" data-tab="console">Console</a>
       </nav>
@@ -585,6 +586,40 @@
           </form>
           <ul id="operators" class="people"></ul>
         </div>
+      </div>
+
+      <div id="pane-addons" hidden>
+        <p id="addons-error" class="error" hidden></p>
+        <div id="addons-restart" class="card notice" hidden>
+          <p>Restart the server to use the changes. Players are disconnected for a moment.</p>
+          <div class="row">
+            <button type="button" id="addons-restart-now" class="primary">Restart now</button>
+            <button type="button" id="addons-restart-later">Later</button>
+          </div>
+        </div>
+
+        <section class="card">
+          <h3>Add-ons in <span id="addons-world"></span></h3>
+          <div class="dropzone" id="addon-drop" data-care>
+            <p><b>Drop a .mcaddon or .mcpack here</b>, or</p>
+            <label class="button">Choose a file<input type="file" id="addon-file" accept=".mcaddon,.mcpack,.zip" hidden></label>
+            <div class="upload-progress" hidden><progress max="100" value="0"></progress><span class="small muted"></span></div>
+          </div>
+          <p class="muted small" data-care>Add-ons from CurseForge, MCPEDL or a creator's own site. They're added to this world, so they go along with its backups, and players' games download them when they join. Marketplace add-ons can't be used on a server.</p>
+          <ul id="addons-list" class="people"></ul>
+        </section>
+
+        <section class="card">
+          <h3>Worlds</h3>
+          <p class="muted small">The server plays one world at a time; switching restarts it. Download a world to open it on a phone, tablet or PC, or upload one made there (in the game: Edit world, then Export world).</p>
+          <ul id="worlds-list" class="people"></ul>
+          <div class="dropzone" id="world-drop" data-care>
+            <p><b>Drop a .mcworld here</b>, or</p>
+            <label class="button">Choose a file<input type="file" id="world-file" accept=".mcworld,.zip" hidden></label>
+            <label class="check inline"><input type="checkbox" id="world-play"><span>Play it straight away</span></label>
+            <div class="upload-progress" hidden><progress max="100" value="0"></progress><span class="small muted"></span></div>
+          </div>
+        </section>
       </div>
 
       <div id="pane-backups" hidden>

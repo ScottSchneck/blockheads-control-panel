@@ -169,6 +169,7 @@ func (s *Server) routes() http.Handler {
 	s.backupRoutes(mux)
 	s.peopleRoutes(mux)
 	s.outsideRoutes(mux)
+	s.addonRoutes(mux)
 	return s.secure(mux)
 }
 

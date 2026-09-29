@@ -132,7 +132,7 @@ func (m *Manager) Load() error {
 			_ = os.RemoveAll(filepath.Join(m.serversDir(), e.Name()))
 			continue
 		}
-		if strings.HasPrefix(e.Name(), ".staging-") || strings.HasPrefix(e.Name(), ".download-") || strings.HasPrefix(e.Name(), ".import-") {
+		if strings.HasPrefix(e.Name(), ".staging-") || strings.HasPrefix(e.Name(), ".download-") || strings.HasPrefix(e.Name(), ".import-") || strings.HasPrefix(e.Name(), ".upload-") {
 			// Left over from an install that was interrupted.
 			_ = os.RemoveAll(filepath.Join(m.serversDir(), e.Name()))
 			continue
@@ -156,6 +156,12 @@ func (m *Manager) Load() error {
 		} else if b, err := os.ReadFile(s.incompleteMarker()); err == nil {
 			s.state = StateError
 			s.message = strings.TrimSpace(string(b))
+		}
+		// World downloads cut short by a restart.
+		if left, _ := filepath.Glob(filepath.Join(m.backupsDir(meta.ID), ".export-*")); len(left) > 0 {
+			for _, l := range left {
+				_ = os.RemoveAll(l)
+			}
 		}
 		m.servers[meta.ID] = s
 		m.log.Info("server loaded", "id", meta.ID, "name", meta.Name, "version", meta.Version, "port", meta.Port)

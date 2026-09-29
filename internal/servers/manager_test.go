@@ -31,7 +31,8 @@ while read line; do
     save\ hold) held=1; echo "Saving...";;
     save\ query) if [ -n "$held" ]; then
         echo "[2026-09-27 12:00:03:000 INFO] Data saved. Files are now ready to be copied."
-        (cd worlds && find . -type f | sed 's|^\./||' | while read f; do printf '%s:%s, ' "$f" "$(wc -c < "$f" | tr -d ' ')"; done) | sed 's/, $//'; echo
+        lvl=$(sed -n 's/^level-name=//p' server.properties); [ -n "$lvl" ] || lvl="Bedrock level"
+        (cd worlds && find "$lvl" -type f | while read f; do printf '%s:%s, ' "$f" "$(wc -c < "$f" | tr -d ' ')"; done) | sed 's/, $//'; echo
       else echo "A previous save has not been completed."; fi;;
     save\ resume) held=; echo "Changes to the world are resumed.";;
     grow\ *) printf 'more' >> "worlds/${line#grow }";;
